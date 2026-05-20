@@ -12,7 +12,7 @@ async function diagnoseFlights() {
     const returnDate = '2026-10-10';
 
     try {
-        const url = `https://${HOST}/api/v2/flights/searchFlights`;
+        const url = `https://${HOST}/api/v1/flights/searchFlights`;
         const res = await axios.get(url, {
             headers: {
                 'X-RapidAPI-Key': RAPIDAPI_KEY,

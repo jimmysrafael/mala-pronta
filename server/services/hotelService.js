@@ -75,11 +75,24 @@ function getRelativeDate(baseDate, days) {
   return d.toISOString().split('T')[0];
 }
 
+function normalizeCityLabel(value) {
+  return String(value || '')
+    .split(',')[0]
+    .replace(/\s*\([^)]+\)\s*$/g, '')
+    .replace(/\s*-\s*[A-Za-zÀ-ÿ'’. ]+$/g, '')
+    .trim();
+}
+
 async function searchHotels({ destination, days, budget, startDate }) {
-  const city = destination.split(',')[0].trim();
+  const destinationObj = typeof destination === 'object' && destination ? destination : null;
+  const city = normalizeCityLabel(
+    destinationObj?.cityName ||
+    destinationObj?.airportName ||
+    destination
+  );
   const arrivalDate = startDate || getRelativeDate(null, 30);
   const departureDate = getRelativeDate(arrivalDate, parseInt(days));
-  const cacheKey = `hotels-${city}-${arrivalDate}-${departureDate}-${budget}`;
+  const cacheKey = `hotels-${destinationObj?.hotelEntityId || city}-${arrivalDate}-${departureDate}-${budget}`;
 
   // 1. CHECK SEARCH CACHE (TTL 24h)
   try {
@@ -99,7 +112,14 @@ async function searchHotels({ destination, days, budget, startDate }) {
 
   // 2. API CALL
   try {
-    const dest = await searchDestination(city);
+    const dest = destinationObj?.hotelEntityId
+      ? {
+          dest_id: destinationObj.hotelEntityId,
+          search_type: destinationObj.hotelSearchType || (destinationObj.flightPlaceType === 'AIRPORT' ? 'airport' : 'city'),
+          name: city,
+        }
+      : await searchDestination(city);
+
     if (!dest) {
       return { available: false, reason: 'Destino não encontrado no Booking', data: [] };
     }

@@ -17,6 +17,18 @@ const router = express.Router();
 // Removemos a obrigatoriedade global para permitir acesso livre no /generate
 // router.use(authMiddleware);
 
+function normalizeTravelCityLabel(value) {
+  let text = String(value || '').trim();
+  if (!text) return '';
+
+  text = text.replace(/\s*\([^)]+\)\s*$/g, '');
+  text = text.split('/')[0].trim();
+  text = text.replace(/^(Aeroporto\s+Internacional\s+(de|do|da)\s+|Aeroporto\s+(de|do|da)\s+|Internacional\s+(de|do|da)\s+|Aeroporto\s+)/i, '');
+  text = text.replace(/\s*-\s*(Congonhas|Santos Dumont|Galeão.*|Antônio Carlos Jobim|Eduardo Gomes|Pinto Martins|Humberto Delgado|Charles de Gaulle).*$/i, '');
+  text = text.replace(/\s+(Congonhas|Santos Dumont|Galeão|Antônio Carlos Jobim|Eduardo Gomes|Pinto Martins|Humberto Delgado|Charles de Gaulle)$/i, '');
+  return text.replace(/\s{2,}/g, ' ').trim();
+}
+
 const generateLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: 10,
@@ -32,18 +44,33 @@ const inFlightRequests = new Map();
 
 // POST /api/trips/generate - Acesso Livre (Optional Auth)
 router.post('/generate', optionalAuth, generateLimiter, async (req, res) => {
-  const { origin, destination, days, budget, travelers = 1, startDate, interests = '' } = req.body;
+  const { origin, destination, days, budget, travelers = 1, startDate, date, returnDate, interests = '' } = req.body;
 
   try {
     if (!destination || !days || !budget) {
       return res.status(400).json({ error: 'Destino, dias e orçamento são obrigatórios' });
     }
 
-    const destinationName = typeof destination === 'object' ? (destination.cityName || '') : destination;
-    const originName = typeof origin === 'object' ? (origin.cityName || '') : origin;
+    const originName = typeof origin === 'object' ? (origin.cityName || origin.airportName || '') : origin;
+    const destinationName = typeof destination === 'object' ? (destination.cityName || destination.airportName || '') : destination;
+    const destinationIata = typeof destination === 'object' ? (destination.iataCode || '') : '';
+    const originIata = typeof origin === 'object' ? (origin.iataCode || '') : '';
+
+    // Tenta reduzir variações de aeroporto para a cidade canônica do banco.
+    // Isso evita mandar "Rio de Janeiro Santos Dumont" para hotéis/clima.
+    const canonicalOrigin = originIata
+      ? db.prepare('SELECT cityName FROM airports WHERE iataCode = ?').get(originIata)
+      : null;
+    const canonicalDestination = destinationIata
+      ? db.prepare('SELECT cityName FROM airports WHERE iataCode = ?').get(destinationIata)
+      : null;
+    const originCity = normalizeTravelCityLabel(canonicalOrigin?.cityName || originName);
+    const destinationCity = normalizeTravelCityLabel(canonicalDestination?.cityName || destinationName);
     
     // 1. GERAR CHAVE ÚNICA DO CACHE
-    const cacheKey = `trip-${originName}-${destinationName}-${days}-${budget}-${travelers}-${startDate}-${interests}`
+    const departureDate = date || startDate || '';
+    const tripReturnDate = returnDate || '';
+    const cacheKey = `trip-${originCity}-${destinationCity}-${days}-${budget}-${travelers}-${departureDate}-${tripReturnDate}-${interests}`
       .toLowerCase().replace(/\s+/g, '_');
 
     // 2. EVITAR DUPLICIDADE EM ANDAMENTO (In-flight tracking)
@@ -76,7 +103,7 @@ router.post('/generate', optionalAuth, generateLimiter, async (req, res) => {
 
       // 4. BUSCAR DADOS (Cada serviço tem seu próprio cache interno agora)
       console.log(`\n🛫 [TRIP] Iniciando busca de dados...`);
-      let flightResults = await searchFlights({ origin, destination, days, travelers, startDate });
+      let flightResults = await searchFlights({ origin, destination, days, travelers, startDate, date, returnDate });
 
       // AUTO-REPAIR: Se os IDs do aeroporto estiverem obsoletos
       if (flightResults.needsRefresh) {
@@ -100,15 +127,23 @@ router.post('/generate', optionalAuth, generateLimiter, async (req, res) => {
 
         // Tenta buscar voos novamente com os novos IDs REAIS em memória
         flightResults = await searchFlights(
-          { origin: newOrigin || origin, destination: newDest || destination, days, travelers, startDate },
+          { origin: newOrigin || origin, destination: newDest || destination, days, travelers, startDate, date, returnDate },
           true // isRetry = true
         );
       }
 
+      const destinationForLocalApis = destinationCity || destinationName;
+      const destinationForHotels = typeof destination === 'object'
+        ? {
+            ...destination,
+            cityName: destinationForLocalApis,
+            hotelEntityId: destination.hotelEntityId || canonicalDestination?.hotelEntityId || null,
+          }
+        : destinationForLocalApis;
       const [hotels, attractions, weather] = await Promise.all([
-        searchHotels({ destination: destinationName, days, budget, startDate }),
-        searchAttractions({ destination: destinationName }),
-        getWeatherInsights({ destination }),
+        searchHotels({ destination: destinationForHotels, days, budget, startDate }),
+        searchAttractions({ destination: destinationForLocalApis }),
+        getWeatherInsights({ destination: destinationForLocalApis }),
       ]);
 
       const tripPlan = buildFeasiblePlan({ 

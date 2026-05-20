@@ -7,6 +7,7 @@ const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY;
 const FLIGHT_HOST = 'sky-scrapper.p.rapidapi.com';
 
 const headers = {
+  'Content-Type': 'application/json',
   'X-RapidAPI-Key': RAPIDAPI_KEY,
   'X-RapidAPI-Host': FLIGHT_HOST,
 };
@@ -17,7 +18,7 @@ function getRelativeDate(baseDate, days) {
   return d.toISOString().split('T')[0];
 }
 
-async function searchFlights({ origin, destination, days, travelers = 1, startDate }, isRetry = false) {
+async function searchFlights({ origin, destination, days, travelers = 1, startDate, date, returnDate: explicitReturnDate }, isRetry = false) {
   const originAirport = typeof origin === 'object' && origin.skyId ? origin : null;
   const destAirport = typeof destination === 'object' && destination.skyId ? destination : null;
   const maskedKey = RAPIDAPI_KEY ? `****${RAPIDAPI_KEY.slice(-4)}` : 'MISSING';
@@ -26,8 +27,8 @@ async function searchFlights({ origin, destination, days, travelers = 1, startDa
     return { available: false, reason: 'Selecione os aeroportos.', data: [] };
   }
 
-  const departureDate = startDate || getRelativeDate(null, 30);
-  const returnDate = getRelativeDate(departureDate, parseInt(days));
+  const departureDate = date || startDate || getRelativeDate(null, 30);
+  const returnDate = explicitReturnDate || getRelativeDate(departureDate, parseInt(days));
   const cacheKey = `flights-v1-${originAirport.skyId}-${destAirport.skyId}-${departureDate}-${returnDate}-${travelers}`;
 
   const tryLabel = isRetry ? 'TENTATIVA 2' : 'TENTATIVA 1';
@@ -73,12 +74,12 @@ async function searchFlights({ origin, destination, days, travelers = 1, startDa
           destinationEntityId: destAirport.entityId,
           date: departureDate,
           returnDate,
-          adults: travelers,
           cabinClass: 'economy',
+          adults: travelers,
+          sortBy: 'best',
           currency: 'USD',
           market: 'en-US',
-          countryCode: 'US',
-          sortBy: 'best'
+          countryCode: 'US'
         },
       }
     );
