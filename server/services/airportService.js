@@ -215,7 +215,7 @@ async function searchAirports(query) {
   } catch (err) {
     const errorMsg = (err?.response?.data?.message || err.message).toLowerCase();
     
-    if (errorMsg.includes('exceeded') || errorMsg.includes('quota')) {
+    if ((errorMsg.includes('quota') && errorMsg.includes('exceeded')) || errorMsg.includes('rate limit') || err.response?.status === 429) {
       apiDisabled = true;
       console.error(`[CIRCUIT BREAKER] ATIVADO: Cota da API RapidAPI estourada.`);
     }
