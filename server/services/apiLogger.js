@@ -1,4 +1,5 @@
 const db = require('../db');
+const logger = require('../utils/logger');
 
 function logApiUsage({
   service_name,
@@ -28,11 +29,14 @@ function logApiUsage({
       request_key,
     ]
   ).catch((err) => {
-    console.error('Failed to log API usage:', err.message);
+    logger.error('Failed to log API usage:', err);
   });
 
   const statusIcon = cache_hit ? '💾 [CACHE HIT]' : (success ? '🌐 [API CALL]' : '❌ [API ERROR]');
-  console.log(`${statusIcon} ${service_name} (${provider}): ${endpoint} ${request_key ? `[key: ${request_key}]` : ''}`);
+  logger.info(`${statusIcon} ${service_name} (${provider}): ${endpoint}`);
+  if (request_key) {
+    logger.debug(`[API USAGE KEY] ${service_name}: ${request_key}`);
+  }
 }
 
 module.exports = { logApiUsage };

@@ -1,6 +1,7 @@
 const axios = require('axios');
 const db = require('../db');
 const { logApiUsage } = require('./apiLogger');
+const logger = require('../utils/logger');
 
 const MONTH_NAMES = [
   'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
@@ -21,7 +22,7 @@ async function getWeatherInsights({ destination }) {
       const ageHours = (now - createdAt) / (1000 * 60 * 60);
 
       if (ageHours < 6) {
-        console.log(`[CACHE HIT] tipo=weather_cache | key=${city}`);
+        logger.debug(`[CACHE HIT] tipo=weather_cache | key=${city}`);
         logApiUsage({
           service_name: 'weather',
           provider: 'Open-Meteo',
@@ -33,10 +34,10 @@ async function getWeatherInsights({ destination }) {
       }
     }
   } catch (err) {
-    console.error('[weather] Cache check error:', err.message);
+    logger.error('[weather] Cache check error:', err);
   }
 
-  console.log(`[CACHE MISS] tipo=weather_cache | key=${city}`);
+  logger.debug(`[CACHE MISS] tipo=weather_cache | key=${city}`);
 
   try {
     const normalize = (str) => str.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
@@ -53,7 +54,7 @@ async function getWeatherInsights({ destination }) {
 
     for (const q of attempts) {
       if (!q) continue;
-      console.log(`[WEATHER TRY] query=${q}`);
+      logger.debug(`[WEATHER TRY] query=${q}`);
       try {
         const geoRes = await axios.get('https://geocoding-api.open-meteo.com/v1/search', {
           params: { name: q, count: 1, language: 'pt', format: 'json' },
@@ -65,12 +66,12 @@ async function getWeatherInsights({ destination }) {
           break;
         }
       } catch (e) {
-        console.warn(`[WEATHER TRY FAIL] ${q}: ${e.message}`);
+        logger.warn(`[WEATHER TRY FAIL] ${q}: ${e.message}`);
       }
     }
 
     if (!loc) {
-      console.log(`[WEATHER FAIL] Não foi possível encontrar coordenadas para: ${city}`);
+      logger.debug(`[WEATHER FAIL] Não foi possível encontrar coordenadas para: ${city}`);
       logApiUsage({
         service_name: 'weather',
         provider: 'Open-Meteo',
@@ -83,7 +84,7 @@ async function getWeatherInsights({ destination }) {
     }
 
     const { latitude, longitude } = loc;
-    console.log(`[WEATHER SUCCESS] lat=${latitude} lon=${longitude} (found via: ${finalQuery})`);
+    logger.debug(`[WEATHER SUCCESS] lat=${latitude} lon=${longitude} (found via: ${finalQuery})`);
 
     const forecastRes = await axios.get('https://api.open-meteo.com/v1/forecast', {
       params: {

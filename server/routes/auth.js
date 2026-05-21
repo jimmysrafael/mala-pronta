@@ -1,17 +1,52 @@
 const express = require('express');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
 const db = require('../db');
+const logger = require('../utils/logger');
 
 const router = express.Router();
 
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  keyGenerator: (req, res) => ipKeyGenerator(req, res),
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (_req, res) => {
+    res.status(429).json({ error: 'Muitas tentativas. Tente novamente mais tarde.' });
+  },
+});
+
+function isValidEmail(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || '').trim());
+}
+
+function normalizeCredentials({ email, password }) {
+  return {
+    email: String(email || '').trim().toLowerCase(),
+    password: String(password || ''),
+  };
+}
+
 // POST /api/auth/register
-router.post('/register', async (req, res) => {
+router.post('/register', authLimiter, async (req, res) => {
   try {
-    const { name, email, password } = req.body;
+    const name = String(req.body?.name || '').trim();
+    const { email, password } = normalizeCredentials(req.body || {});
 
     if (!name || !email || !password) {
       return res.status(400).json({ error: 'Todos os campos são obrigatórios' });
+    }
+
+    if (name.length < 2 || name.length > 120) {
+      return res.status(400).json({ error: 'Nome invalido' });
+    }
+    if (!isValidEmail(email)) {
+      return res.status(400).json({ error: 'Email invalido' });
+    }
+    if (password.length < 6 || password.length > 128) {
+      return res.status(400).json({ error: 'Senha deve ter entre 6 e 128 caracteres' });
     }
 
     const existing = await db.one('SELECT id FROM users WHERE email = ?', [email]);
@@ -35,18 +70,22 @@ router.post('/register', async (req, res) => {
       user: { id: user.id, name, email },
     });
   } catch (err) {
-    console.error('Register error:', err);
+    logger.error('Register error:', err);
     res.status(500).json({ error: 'Erro interno do servidor' });
   }
 });
 
 // POST /api/auth/login
-router.post('/login', async (req, res) => {
+router.post('/login', authLimiter, async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email, password } = normalizeCredentials(req.body || {});
 
     if (!email || !password) {
       return res.status(400).json({ error: 'Email e senha são obrigatórios' });
+    }
+
+    if (!isValidEmail(email) || password.length > 128) {
+      return res.status(400).json({ error: 'Email ou senha invalidos' });
     }
 
     const user = await db.one('SELECT * FROM users WHERE email = ?', [email]);
@@ -68,7 +107,7 @@ router.post('/login', async (req, res) => {
       user: { id: user.id, name: user.name, email: user.email },
     });
   } catch (err) {
-    console.error('Login error:', err);
+    logger.error('Login error:', err);
     res.status(500).json({ error: 'Erro interno do servidor' });
   }
 });

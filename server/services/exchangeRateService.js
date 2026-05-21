@@ -1,4 +1,5 @@
 const axios = require('axios');
+const logger = require('../utils/logger');
 
 let cachedRate = null;
 let lastFetch = 0;
@@ -20,11 +21,11 @@ async function getUSDBRLRate() {
     if (rate && !isNaN(rate)) {
       cachedRate = rate;
       lastFetch = now;
-      console.log(`[EXCHANGE] Cotação atualizada: 1 USD = ${rate} BRL`);
+      logger.debug(`[EXCHANGE] Cotação atualizada: 1 USD = ${rate} BRL`);
       return { rate, isFallback: false };
     }
   } catch (error) {
-    console.error(`[EXCHANGE] Erro ao buscar cotação: ${error.message}. Usando fallback.`);
+    logger.error('[EXCHANGE] Erro ao buscar cotação. Usando fallback.', error);
   }
 
   return { rate: FALLBACK_RATE, isFallback: true };

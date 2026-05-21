@@ -2,10 +2,12 @@ require('dotenv').config();
 
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
 
 const authRoutes = require('./routes/auth');
 const tripRoutes = require('./routes/trips');
 const airportRoutes = require('./routes/airports');
+const logger = require('./utils/logger');
 
 function parseAllowedOrigins(value) {
   return String(value || '')
@@ -50,25 +52,46 @@ function originMatchesAllowedOrigin(origin, allowedOrigin) {
 const app = express();
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
+app.use(helmet());
 
-const allowedOrigins = parseAllowedOrigins(
-  process.env.CORS_ORIGIN || process.env.CLIENT_URL || 'http://localhost:5173'
-);
+const isProduction = process.env.NODE_ENV === 'production';
+const allowPreviewOrigins = process.env.CORS_ALLOW_VERCEL_PREVIEWS === 'true';
+const corsCredentials = process.env.CORS_CREDENTIALS === 'true';
+
+const allowedOrigins = [
+  ...parseAllowedOrigins(process.env.CORS_ORIGIN),
+  ...parseAllowedOrigins(process.env.CLIENT_URL),
+  ...(isProduction ? ['https://mala-pronta-eight.vercel.app'] : ['http://localhost:5173']),
+].filter((origin, index, origins) => origins.indexOf(origin) === index);
 
 app.use(
   cors({
     origin(origin, callback) {
       if (!origin) return callback(null, true);
-      if (allowedOrigins.some((allowedOrigin) => originMatchesAllowedOrigin(origin, allowedOrigin))) {
+      if (allowedOrigins.some((allowedOrigin) => {
+        if (isProduction && allowedOrigin.includes('*') && !allowPreviewOrigins) {
+          return false;
+        }
+
+        return originMatchesAllowedOrigin(origin, allowedOrigin);
+      })) {
         return callback(null, true);
       }
-      return callback(new Error(`Origin not allowed by CORS: ${origin}`));
+      return callback(null, false);
     },
-    credentials: true,
+    credentials: corsCredentials,
   })
 );
 
 app.use(express.json({ limit: '1mb' }));
+
+app.get('/', (_req, res) => {
+  res.json({
+    ok: true,
+    service: 'mala-pronta-api',
+    message: 'API online',
+  });
+});
 
 app.get('/healthz', (_req, res) => {
   res.json({
@@ -84,7 +107,7 @@ app.use('/api/trips', tripRoutes);
 app.use('/api/airports', airportRoutes);
 
 app.use((err, _req, res, _next) => {
-  console.error('[API ERROR]', err);
+  logger.error('[API ERROR]', err);
   res.status(500).json({ error: 'Erro interno do servidor' });
 });
 

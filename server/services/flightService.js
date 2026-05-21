@@ -2,6 +2,7 @@ const axios = require('axios');
 const db = require('../db');
 const { logApiUsage } = require('./apiLogger');
 const { getUSDBRLRate } = require('./exchangeRateService');
+const logger = require('../utils/logger');
 
 const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY;
 const FLIGHT_HOST = 'sky-scrapper.p.rapidapi.com';
@@ -32,18 +33,18 @@ async function searchFlights({ origin, destination, days, travelers = 1, startDa
   const cacheKey = `flights-v1-${originAirport.skyId}-${destAirport.skyId}-${departureDate}-${returnDate}-${travelers}`;
 
   const tryLabel = isRetry ? 'TENTATIVA 2' : 'TENTATIVA 1';
-  console.log(`\n[FLIGHTS REQUEST] (${tryLabel})`);
-  console.log(`originSkyId=${originAirport.skyId} | originEntityId=${originAirport.entityId}`);
-  console.log(`destinationSkyId=${destAirport.skyId} | destinationEntityId=${destAirport.entityId}`);
-  console.log(`date=${departureDate} | returnDate=${returnDate} | travelers=${travelers}`);
-  console.log(`key=${maskedKey} | cacheKey=${cacheKey}`);
+  logger.debug(`[FLIGHTS REQUEST] (${tryLabel})`);
+  logger.debug(`originSkyId=${originAirport.skyId} | originEntityId=${originAirport.entityId}`);
+  logger.debug(`destinationSkyId=${destAirport.skyId} | destinationEntityId=${destAirport.entityId}`);
+  logger.debug(`date=${departureDate} | returnDate=${returnDate} | travelers=${travelers}`);
+  logger.debug(`key=${maskedKey} | cacheKey=${cacheKey}`);
 
   try {
     const cached = await db.one('SELECT resultado_json, created_at FROM flight_cache WHERE cache_key = ?', [cacheKey]);
     if (cached) {
       const ageHours = (new Date() - new Date(cached.created_at)) / (1000 * 60 * 60);
       if (ageHours < 24) {
-        console.log(`[CACHE HIT] tipo=flight_cache | key=${cacheKey}`);
+        logger.debug(`[CACHE HIT] tipo=flight_cache | key=${cacheKey}`);
         logApiUsage({
           service_name: 'flights',
           provider: 'Sky Scrapper',
@@ -55,10 +56,10 @@ async function searchFlights({ origin, destination, days, travelers = 1, startDa
       }
     }
   } catch (err) {
-    console.error('[flights] Cache check error:', err.message);
+    logger.error('[flights] Cache check error:', err);
   }
 
-  console.log(`[CACHE MISS] tipo=flight_cache | key=${cacheKey}`);
+  logger.debug(`[CACHE MISS] tipo=flight_cache | key=${cacheKey}`);
 
   try {
     const response = await axios.get(
@@ -85,20 +86,20 @@ async function searchFlights({ origin, destination, days, travelers = 1, startDa
     const apiResponse = response.data;
     const itineraries = apiResponse?.data?.itineraries || [];
 
-    console.log(`[FLIGHTS RESPONSE RAW]`);
-    console.log(`status=${apiResponse?.status !== undefined ? apiResponse.status : 'N/A'}`);
-    console.log(`totalResults=${apiResponse?.data?.context?.totalResults || 'N/A'}`);
-    console.log(`itinerariesLength=${itineraries.length}`);
-    console.log(`Object.keys(response.data)=${Object.keys(apiResponse).join(', ')}`);
-    console.log(`Object.keys(response.data.data || {})=${Object.keys(apiResponse?.data || {}).join(', ')}`);
-    console.log(`Array.isArray(itineraries)=${Array.isArray(itineraries)}`);
+    logger.debug('[FLIGHTS RESPONSE]');
+    logger.debug(`status=${apiResponse?.status !== undefined ? apiResponse.status : 'N/A'}`);
+    logger.debug(`totalResults=${apiResponse?.data?.context?.totalResults || 'N/A'}`);
+    logger.debug(`itinerariesLength=${itineraries.length}`);
+    logger.debug(`Object.keys(response.data)=${Object.keys(apiResponse).join(', ')}`);
+    logger.debug(`Object.keys(response.data.data || {})=${Object.keys(apiResponse?.data || {}).join(', ')}`);
+    logger.debug(`Array.isArray(itineraries)=${Array.isArray(itineraries)}`);
 
     if (apiResponse?.status === false || apiResponse?.message === 'Something went wrong.' || apiResponse?.message?.includes('object Object')) {
-      console.log(`[FLIGHTS ERROR RAW]`);
-      console.log(JSON.stringify(apiResponse, null, 2));
+      logger.debug('[FLIGHTS ERROR RAW]');
+      logger.debug(JSON.stringify(apiResponse, null, 2));
 
       if (!isRetry) {
-        console.warn(`⚠️  [FLIGHTS] API v1 retornou erro na Tentativa 1.`);
+        logger.warn('[FLIGHTS] API v1 retornou erro na Tentativa 1.');
         await db.run('DELETE FROM airports WHERE "skyId" IN (?, ?)', [originAirport.skyId, destAirport.skyId]);
 
         return {
@@ -109,7 +110,7 @@ async function searchFlights({ origin, destination, days, travelers = 1, startDa
         };
       }
 
-      console.error(`❌ [FLIGHTS] API v1 falhou novamente na Tentativa 2. Usando fallback.`);
+      logger.error('[FLIGHTS] API v1 falhou novamente na Tentativa 2. Usando fallback.');
       return { available: false, reason: 'Não foi possível consultar voos em tempo real. Usamos uma estimativa com base no orçamento.', data: [] };
     }
 
@@ -117,9 +118,9 @@ async function searchFlights({ origin, destination, days, travelers = 1, startDa
       return { available: false, reason: 'Nenhum voo encontrado para essa rota.', data: [] };
     }
 
-    console.log(`Primeiro preço raw: ${itineraries[0].price?.raw}`);
-    console.log(`Primeiro preço formatted: ${itineraries[0].price?.formatted}`);
-    console.log(`Primeira companhia: ${itineraries[0].legs?.[0]?.carriers?.marketing?.[0]?.name}`);
+    logger.debug(`Primeiro preço raw: ${itineraries[0].price?.raw}`);
+    logger.debug(`Primeiro preço formatted: ${itineraries[0].price?.formatted}`);
+    logger.debug(`Primeira companhia: ${itineraries[0].legs?.[0]?.carriers?.marketing?.[0]?.name}`);
 
     const { rate, isFallback } = await getUSDBRLRate();
 
@@ -132,7 +133,7 @@ async function searchFlights({ origin, destination, days, travelers = 1, startDa
       const stops = outboundLeg?.stopCount ?? 0;
       const airline = outboundLeg?.carriers?.marketing?.[0]?.name || 'N/A';
 
-      console.log(`[FLIGHT ${index + 1}] price=USD ${priceUSD} | duration=${duration} min | stops=${stops} | airline=${airline}`);
+      logger.debug(`[FLIGHT ${index + 1}] price=USD ${priceUSD} | duration=${duration} min | stops=${stops} | airline=${airline}`);
 
       return {
         provider: 'air_scraper',
@@ -170,8 +171,8 @@ async function searchFlights({ origin, destination, days, travelers = 1, startDa
 
     return { available: true, data: offers };
   } catch (err) {
-    console.error(`[FLIGHTS ERROR RAW] ${err.message}`);
-    if (err.response?.data) console.log(JSON.stringify(err.response.data, null, 2));
+    logger.error('[FLIGHTS ERROR]', err);
+    if (err.response?.data) logger.debug(JSON.stringify(err.response.data, null, 2));
 
     logApiUsage({
       service_name: 'flights',

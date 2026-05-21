@@ -1,6 +1,7 @@
 const axios = require('axios');
 const db = require('../db');
 const { logApiUsage } = require('./apiLogger');
+const logger = require('../utils/logger');
 
 const memoryCache = new Map();
 const CACHE_TTL = 60 * 1000;
@@ -21,18 +22,18 @@ async function searchAirports(query) {
   const qUpper = qOriginal.toUpperCase();
   const maskedKey = RAPIDAPI_KEY ? `****${RAPIDAPI_KEY.slice(-4)}` : 'MISSING';
 
-  console.log(`\n[SEARCH] query: "${qOriginal}" | key: ${maskedKey}`);
+  logger.debug(`[SEARCH] query: "${qOriginal}" | key: ${maskedKey}`);
 
   const qNormalized = qOriginal.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 
   if (q.length < 3) {
-    console.log(`[SKIP] Query muito curta: "${q}"`);
+    logger.debug(`[SKIP] Query muito curta: "${q}"`);
     return [];
   }
 
   const cachedMem = memoryCache.get(q);
   if (cachedMem && Date.now() - cachedMem.timestamp < CACHE_TTL) {
-    console.log(`[CACHE HIT] tipo=memory_airport | key=${q}`);
+    logger.debug(`[CACHE HIT] tipo=memory_airport | key=${q}`);
     return cachedMem.data;
   }
 
@@ -89,13 +90,13 @@ async function searchAirports(query) {
 
   if (!shouldCallAPI) {
     const reason = apiDisabled ? '[FALLBACK]' : (hasStrongMatch ? '[LOCAL-STRONG]' : '[LOCAL]');
-    console.log(`${reason} ${q} -> Usando ${localResults.length} resultados locais.`);
+    logger.debug(`${reason} ${q} -> Usando ${localResults.length} resultados locais.`);
 
     memoryCache.set(q, { data: localResults.slice(0, 8), timestamp: Date.now() });
     return localResults.slice(0, 8);
   }
 
-  console.log(`[API CALL] searchAirport: "${q}"`);
+  logger.debug(`[API CALL] searchAirport: "${q}"`);
   try {
     const { data } = await axios.get(
       'https://sky-scrapper.p.rapidapi.com/api/v1/flights/searchAirport',
@@ -107,7 +108,7 @@ async function searchAirports(query) {
     );
 
     const apiItems = data?.data || [];
-    console.log(`[RESULTS RAW] total retornado da API: ${apiItems.length}`);
+    logger.debug(`[RESULTS RAW] total retornado da API: ${apiItems.length}`);
 
     const results = apiItems
       .map((item) => {
@@ -123,7 +124,7 @@ async function searchAirports(query) {
           type: flightParams.flightPlaceType || item.navigation?.entityType || 'AIRPORT',
           hotelEntityId: hotelParams.entityId || null,
         };
-        console.log(`[ITEM RAW] skyId=${resItem.skyId} | entityId=${resItem.entityId} | type=${resItem.type} | name=${resItem.cityName} | title=${resItem.airportName} | subtitle=${resItem.subtitle}`);
+        logger.debug(`[ITEM RAW] skyId=${resItem.skyId} | entityId=${resItem.entityId} | type=${resItem.type} | name=${resItem.cityName} | title=${resItem.airportName} | subtitle=${resItem.subtitle}`);
         return resItem;
       })
       .sort((a, b) => {
@@ -159,9 +160,9 @@ async function searchAirports(query) {
         return 0;
       });
 
-    console.log(`\n[FINAL AUTOCOMPLETE]`);
+    logger.debug('[FINAL AUTOCOMPLETE]');
     results.slice(0, 5).forEach((r, i) => {
-      console.log(`${i + 1}º ${r.iataCode} - ${r.cityName} (${r.type}) [${r.subtitle}]`);
+      logger.debug(`${i + 1}º ${r.iataCode} - ${r.cityName} (${r.type}) [${r.subtitle}]`);
     });
 
     logApiUsage({
@@ -227,7 +228,7 @@ async function searchAirports(query) {
 
     if ((errorMsg.includes('quota') && errorMsg.includes('exceeded')) || errorMsg.includes('rate limit') || err.response?.status === 429) {
       apiDisabled = true;
-      console.error(`[CIRCUIT BREAKER] ATIVADO: Cota da API RapidAPI estourada.`);
+      logger.error('[CIRCUIT BREAKER] ATIVADO: Cota da API RapidAPI estourada.');
     }
 
     logApiUsage({
@@ -239,7 +240,7 @@ async function searchAirports(query) {
       request_key: q,
     });
 
-    console.error(`[FALLBACK] Erro na API: ${errorMsg}. Usando resultados locais.`);
+    logger.error(`[FALLBACK] Erro na API: ${errorMsg}. Usando resultados locais.`);
     return localResults.slice(0, 6);
   }
 }

@@ -1,6 +1,7 @@
 require('dotenv').config();
 
 const { Pool } = require('pg');
+const logger = require('./utils/logger');
 
 const connectionString = process.env.DATABASE_URL || process.env.POSTGRES_URL;
 
@@ -23,7 +24,7 @@ const pool = new Pool({
 });
 
 pool.on('error', (err) => {
-  console.error('[PG POOL ERROR]', err);
+  logger.error('[PG POOL ERROR]', err);
 });
 
 function toPgSql(sql) {
@@ -267,7 +268,7 @@ async function seedAirportsIfNeeded() {
     }
   });
 
-  console.log('Base de aeroportos inicializada com sucesso.');
+  logger.info('Base de aeroportos inicializada com sucesso.');
 }
 
 let initPromise = null;

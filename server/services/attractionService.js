@@ -1,6 +1,7 @@
 const axios = require('axios');
 const db = require('../db');
 const { logApiUsage } = require('./apiLogger');
+const logger = require('../utils/logger');
 
 async function searchAttractions({ destination }) {
   const city = String(destination || '').split(',')[0].trim();
@@ -23,7 +24,7 @@ async function searchAttractions({ destination }) {
       }
     }
   } catch (err) {
-    console.error('[attractions] Cache check error:', err.message);
+    logger.error('[attractions] Cache check error:', err);
   }
 
   try {

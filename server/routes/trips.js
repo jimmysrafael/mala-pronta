@@ -12,6 +12,7 @@ const { searchAirports } = require('../services/airportService');
 const { buildFeasiblePlan } = require('../services/tripPlannerService');
 const { generateAIItinerary } = require('../services/aiItineraryService');
 const { logApiUsage } = require('../services/apiLogger');
+const logger = require('../utils/logger');
 
 const router = express.Router();
 
@@ -31,6 +32,8 @@ const generateLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: 10,
   keyGenerator: (req, res) => (req.userId ? String(req.userId) : ipKeyGenerator(req, res)),
+  standardHeaders: true,
+  legacyHeaders: false,
   handler: (_req, res) => {
     res.status(429).json({
       error: 'Limite atingido. Tente novamente mais tarde.',
@@ -40,11 +43,82 @@ const generateLimiter = rateLimit({
 
 const inFlightRequests = new Map();
 
+function isValidTravelLocation(value) {
+  if (typeof value === 'string') {
+    const text = value.trim();
+    return text.length >= 2 && text.length <= 120;
+  }
+
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  return ['cityName', 'airportName', 'iataCode', 'skyId'].some((field) => {
+    const text = String(value[field] || '').trim();
+    return text.length >= 2 && text.length <= 120;
+  });
+}
+
+function isValidIsoDate(value) {
+  if (!value) return true;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value))) return false;
+  return !Number.isNaN(new Date(`${value}T00:00:00Z`).getTime());
+}
+
+function validateGeneratePayload(body = {}) {
+  const days = Number(body.days);
+  const budget = Number(body.budget);
+  const travelers = body.travelers === undefined ? 1 : Number(body.travelers);
+  const interests = String(body.interests || '').trim();
+
+  if (!isValidTravelLocation(body.origin)) {
+    return { error: 'Origem invalida' };
+  }
+  if (!isValidTravelLocation(body.destination)) {
+    return { error: 'Destino invalido' };
+  }
+  if (!Number.isInteger(days) || days < 1 || days > 30) {
+    return { error: 'Dias deve ser um numero entre 1 e 30' };
+  }
+  if (!Number.isFinite(budget) || budget < 100 || budget > 100000) {
+    return { error: 'Orcamento deve ser um valor entre 100 e 100000' };
+  }
+  if (!Number.isInteger(travelers) || travelers < 1 || travelers > 9) {
+    return { error: 'Viajantes deve ser um numero entre 1 e 9' };
+  }
+  if (!isValidIsoDate(body.startDate) || !isValidIsoDate(body.date) || !isValidIsoDate(body.returnDate)) {
+    return { error: 'Data invalida' };
+  }
+  if (interests.length > 300) {
+    return { error: 'Interesses deve ter no maximo 300 caracteres' };
+  }
+
+  return {
+    value: {
+      origin: body.origin,
+      destination: body.destination,
+      days,
+      budget,
+      travelers,
+      startDate: body.startDate || '',
+      date: body.date || '',
+      returnDate: body.returnDate || '',
+      interests,
+    },
+  };
+}
+
 // POST /api/trips/generate - Acesso Livre (Optional Auth)
 router.post('/generate', optionalAuth, generateLimiter, async (req, res) => {
-  const { origin, destination, days, budget, travelers = 1, startDate, date, returnDate, interests = '' } = req.body;
 
   try {
+    const validation = validateGeneratePayload(req.body);
+    if (validation.error) {
+      return res.status(400).json({ error: validation.error });
+    }
+
+    const { origin, destination, days, budget, travelers, startDate, date, returnDate, interests } = validation.value;
+
     if (!destination || !days || !budget) {
       return res.status(400).json({ error: 'Destino, dias e orçamento são obrigatórios' });
     }
@@ -70,7 +144,7 @@ router.post('/generate', optionalAuth, generateLimiter, async (req, res) => {
       .toLowerCase().replace(/\s+/g, '_');
 
     if (inFlightRequests.has(cacheKey)) {
-      console.log(`[TRACKING] Requisição idêntica em andamento para: ${cacheKey}. Aguardando...`);
+      logger.info('[TRACKING] Requisição idêntica em andamento. Aguardando...');
       const result = await inFlightRequests.get(cacheKey);
       return res.json(result);
     }
@@ -80,7 +154,7 @@ router.post('/generate', optionalAuth, generateLimiter, async (req, res) => {
       if (cached) {
         const ageHours = (new Date() - new Date(cached.created_at)) / (1000 * 60 * 60);
         if (ageHours < 24) {
-          console.log(`[CACHE HIT] tipo=trip_cache | key=${cacheKey}`);
+          logger.info('[CACHE HIT] tipo=trip_cache');
           logApiUsage({
             service_name: 'full_trip_itinerary',
             provider: 'CacheSystem',
@@ -92,15 +166,15 @@ router.post('/generate', optionalAuth, generateLimiter, async (req, res) => {
         }
       }
 
-      console.log(`[CACHE MISS] tipo=trip_cache | key=${cacheKey}`);
-      console.log(`\n🛫 [TRIP] Iniciando busca de dados...`);
+      logger.info('[CACHE MISS] tipo=trip_cache');
+      logger.info('[TRIP] Iniciando busca de dados...');
       let flightResults = await searchFlights({ origin, destination, days, travelers, startDate, date, returnDate });
 
       if (flightResults.needsRefresh) {
         const oldOriginId = origin.entityId;
         const oldDestId = destination.entityId;
 
-        console.log(`♻️  [AUTO-REPAIR] Detectada falha de IDs. Atualizando aeroportos: ${origin.iataCode}, ${destination.iataCode}...`);
+        logger.info('[AUTO-REPAIR] Detectada falha de IDs. Atualizando aeroportos.');
 
         await Promise.all([
           searchAirports(origin.iataCode || origin.cityName),
@@ -110,8 +184,8 @@ router.post('/generate', optionalAuth, generateLimiter, async (req, res) => {
         const newOrigin = await db.one('SELECT * FROM airports WHERE "iataCode" = ?', [origin.iataCode]);
         const newDest = await db.one('SELECT * FROM airports WHERE "iataCode" = ?', [destination.iataCode]);
 
-        if (newOrigin) console.log(`[AUTO-REPAIR] ${newOrigin.iataCode} atualizado: ${oldOriginId} -> ${newOrigin.entityId}`);
-        if (newDest) console.log(`[AUTO-REPAIR] ${newDest.iataCode} atualizado: ${oldDestId} -> ${newDest.entityId}`);
+        if (newOrigin) logger.info(`[AUTO-REPAIR] ${newOrigin.iataCode} atualizado.`);
+        if (newDest) logger.info(`[AUTO-REPAIR] ${newDest.iataCode} atualizado.`);
 
         flightResults = await searchFlights(
           { origin: newOrigin || origin, destination: newDest || destination, days, travelers, startDate, date, returnDate },
@@ -163,7 +237,7 @@ router.post('/generate', optionalAuth, generateLimiter, async (req, res) => {
       inFlightRequests.delete(cacheKey);
     }
   } catch (err) {
-    console.error('Generate error:', err);
+    logger.error('Generate error:', err);
     if (err.status === 401 || err.code === 'invalid_api_key') {
       return res.status(500).json({ error: 'Chave da API OpenAI inválida.' });
     }
@@ -187,7 +261,7 @@ router.post('/save', authMiddleware, async (req, res) => {
 
     res.status(201).json(saved);
   } catch (err) {
-    console.error('Save error:', err);
+    logger.error('Save error:', err);
     res.status(500).json({ error: 'Erro ao salvar a viagem' });
   }
 });
@@ -202,7 +276,7 @@ router.get('/', authMiddleware, async (req, res) => {
 
     res.json(trips);
   } catch (err) {
-    console.error('List trips error:', err);
+    logger.error('List trips error:', err);
     res.status(500).json({ error: 'Erro ao buscar viagens' });
   }
 });
@@ -223,7 +297,7 @@ router.delete('/:id', authMiddleware, async (req, res) => {
 
     res.json({ message: 'Viagem deletada com sucesso' });
   } catch (err) {
-    console.error('Delete error:', err);
+    logger.error('Delete error:', err);
     res.status(500).json({ error: 'Erro ao deletar a viagem' });
   }
 });

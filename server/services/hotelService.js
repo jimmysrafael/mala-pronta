@@ -1,6 +1,7 @@
 const axios = require('axios');
 const db = require('../db');
 const { logApiUsage } = require('./apiLogger');
+const logger = require('../utils/logger');
 
 const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY;
 const HOTEL_HOST = 'booking-com15.p.rapidapi.com';
@@ -14,18 +15,18 @@ async function searchDestination(city) {
   try {
     const cached = await db.one('SELECT dest_id, search_type, name FROM hotel_dest_cache WHERE city_name = ?', [city]);
     if (cached) {
-      console.log(`[CACHE HIT] tipo=hotel_dest_cache | key=${city}`);
+      logger.debug(`[CACHE HIT] tipo=hotel_dest_cache | key=${city}`);
       return cached;
     }
   } catch (err) {
-    console.error('[hotel_dest] Cache check error:', err.message);
+    logger.error('[hotel_dest] Cache check error:', err);
   }
 
-  console.log(`[CACHE MISS] tipo=hotel_dest_cache | key=${city}`);
+  logger.debug(`[CACHE MISS] tipo=hotel_dest_cache | key=${city}`);
 
   try {
     const maskedKey = RAPIDAPI_KEY ? `****${RAPIDAPI_KEY.slice(-4)}` : 'MISSING';
-    console.log(`[HOTEL DESTINATION] query=${city} | key=${maskedKey}`);
+    logger.debug(`[HOTEL DESTINATION] query=${city} | key=${maskedKey}`);
 
     const { data } = await axios.get(
       'https://booking-com15.p.rapidapi.com/api/v1/hotels/searchDestination',
@@ -37,7 +38,7 @@ async function searchDestination(city) {
 
     const result = data?.data?.[0];
     if (!result) {
-      console.log(`[HOTEL DESTINATION FAIL] query=${city}`);
+      logger.debug(`[HOTEL DESTINATION FAIL] query=${city}`);
       return null;
     }
 
@@ -47,7 +48,7 @@ async function searchDestination(city) {
       name: result.name || result.label || city,
     };
 
-    console.log(`[HOTEL DESTINATION SUCCESS] city=${city} | dest_id=${destData.dest_id}`);
+    logger.debug(`[HOTEL DESTINATION SUCCESS] city=${city} | dest_id=${destData.dest_id}`);
 
     await db.run(
       'INSERT INTO hotel_dest_cache (city_name, dest_id, search_type, name, created_at) VALUES (?, ?, ?, ?, NOW()) ON CONFLICT (city_name) DO UPDATE SET dest_id = EXCLUDED.dest_id, search_type = EXCLUDED.search_type, name = EXCLUDED.name, created_at = NOW()',
@@ -65,7 +66,7 @@ async function searchDestination(city) {
 
     return destData;
   } catch (err) {
-    console.error(`[HOTEL DESTINATION ERROR] ${city}: ${err.message}`);
+    logger.error(`[HOTEL DESTINATION ERROR] ${city}:`, err);
     return null;
   }
 }
@@ -100,15 +101,15 @@ async function searchHotels({ destination, days, budget, startDate }) {
     if (cached) {
       const ageHours = (new Date() - new Date(cached.created_at)) / (1000 * 60 * 60);
       if (ageHours < 24) {
-        console.log(`[CACHE HIT] tipo=hotel_search_cache | key=${cacheKey}`);
+        logger.debug(`[CACHE HIT] tipo=hotel_search_cache | key=${cacheKey}`);
         return { available: true, data: JSON.parse(cached.resultado_json) };
       }
     }
   } catch (err) {
-    console.error('[hotel_search] Cache check error:', err.message);
+    logger.error('[hotel_search] Cache check error:', err);
   }
 
-  console.log(`[CACHE MISS] tipo=hotel_search_cache | key=${cacheKey}`);
+  logger.debug(`[CACHE MISS] tipo=hotel_search_cache | key=${cacheKey}`);
 
   try {
     const dest = destinationObj?.hotelEntityId
@@ -125,7 +126,7 @@ async function searchHotels({ destination, days, budget, startDate }) {
 
     const budgetPerNight = (budget * 0.35) / days;
 
-    console.log(`[HOTEL SEARCH] checkin=${arrivalDate} | checkout=${departureDate} | dest_id=${dest.dest_id}`);
+    logger.debug(`[HOTEL SEARCH] checkin=${arrivalDate} | checkout=${departureDate} | dest_id=${dest.dest_id}`);
 
     const { data } = await axios.get(
       'https://booking-com15.p.rapidapi.com/api/v1/hotels/searchHotels',
@@ -146,7 +147,7 @@ async function searchHotels({ destination, days, budget, startDate }) {
     );
 
     const rawHotels = data?.data?.hotels || [];
-    console.log(`[HOTEL SEARCH RESPONSE] total_results=${rawHotels.length}`);
+    logger.debug(`[HOTEL SEARCH RESPONSE] total_results=${rawHotels.length}`);
 
     const hotels = rawHotels
       .filter((h) => {
@@ -167,7 +168,7 @@ async function searchHotels({ destination, days, budget, startDate }) {
           checkIn: arrivalDate,
           checkOut: departureDate,
         };
-        console.log(`[HOTEL ${i + 1}] name=${hotelItem.name} | price=BRL ${hotelItem.totalPrice} | rating=${hotelItem.rating}`);
+        logger.debug(`[HOTEL ${i + 1}] name=${hotelItem.name} | price=BRL ${hotelItem.totalPrice} | rating=${hotelItem.rating}`);
         return hotelItem;
       });
 
@@ -189,7 +190,7 @@ async function searchHotels({ destination, days, budget, startDate }) {
 
     return { available: hotels.length > 0, data: hotels };
   } catch (err) {
-    console.error(`[HOTEL SEARCH ERROR] ${city}: ${err.message}`);
+    logger.error(`[HOTEL SEARCH ERROR] ${city}:`, err);
     return { available: false, reason: 'Não foi possível consultar hotéis em tempo real. Usamos uma estimativa com base no orçamento.', data: [] };
   }
 }
