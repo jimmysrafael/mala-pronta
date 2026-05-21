@@ -5,6 +5,7 @@ import { useToast } from '../components/Toast';
 import Header from '../components/Header';
 import BottomNav from '../components/BottomNav';
 import { hashStr, formatCurrency, formatDate } from '../utils/helpers';
+import { apiFetch } from '../lib/api';
 
 const THUMB_GRADIENTS = [
   'linear-gradient(135deg, #0f5238, #2d6a4f)',
@@ -32,7 +33,7 @@ export default function MyTripsPage() {
 
   const fetchTrips = async () => {
     try {
-      const res = await fetch('/api/trips', {
+      const res = await apiFetch('/api/trips', {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
@@ -48,7 +49,7 @@ export default function MyTripsPage() {
   const handleDelete = async (e, id) => {
     e.stopPropagation();
     try {
-      const res = await fetch(`/api/trips/${id}`, {
+      const res = await apiFetch(`/api/trips/${id}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` },
       });

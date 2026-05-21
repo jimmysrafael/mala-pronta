@@ -4,8 +4,8 @@ const { searchAirports } = require('./services/airportService');
 
 async function refresh() {
   console.log('🗑️ Removendo aeroportos antigos do banco...');
-  db.prepare("DELETE FROM airports WHERE iataCode IN ('GRU', 'GIG', 'MAO', 'FLN')").run();
-  
+  await db.run('DELETE FROM airports WHERE "iataCode" IN (?, ?, ?, ?)', ['GRU', 'GIG', 'MAO', 'FLN']);
+
   const targets = ['GRU', 'GIG', 'MAO', 'FLN'];
   for (const t of targets) {
     console.log(`\n🔍 Buscando ${t} via API...`);
@@ -17,10 +17,12 @@ async function refresh() {
     } else {
       console.log(`❌ ${t} não encontrado.`);
     }
-    // Delay para evitar rate limit
-    await new Promise(r => setTimeout(r, 1000));
+    await new Promise((r) => setTimeout(r, 1000));
   }
   console.log('\n✨ Refresh concluído!');
 }
 
-refresh();
+refresh().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

@@ -5,6 +5,7 @@ import Header from '../components/Header';
 import BottomNav from '../components/BottomNav';
 import { useState } from 'react';
 import { hashStr, formatCurrency } from '../utils/helpers';
+import { apiFetch } from '../lib/api';
 
 const BANNER_GRADIENTS = [
   'linear-gradient(135deg, #0f5238 0%, #1a7a54 50%, #2d6a4f 100%)',
@@ -43,7 +44,7 @@ export default function ItineraryPage() {
     if (saved || saving) return;
     setSaving(true);
     try {
-      const res = await fetch('/api/trips/save', {
+      const res = await apiFetch('/api/trips/save', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

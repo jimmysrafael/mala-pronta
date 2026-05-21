@@ -14,25 +14,25 @@ router.post('/register', async (req, res) => {
       return res.status(400).json({ error: 'Todos os campos são obrigatórios' });
     }
 
-    // Check if user exists
-    const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
+    const existing = await db.one('SELECT id FROM users WHERE email = ?', [email]);
     if (existing) {
       return res.status(409).json({ error: 'Este email já está cadastrado' });
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    const result = db.prepare(
-      'INSERT INTO users (name, email, password) VALUES (?, ?, ?)'
-    ).run(name, email, hashedPassword);
+    const user = await db.one(
+      'INSERT INTO users (name, email, password) VALUES (?, ?, ?) RETURNING id',
+      [name, email, hashedPassword]
+    );
 
-    const token = jwt.sign({ id: result.lastInsertRowid }, process.env.JWT_SECRET, {
+    const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET, {
       expiresIn: '7d',
     });
 
     res.status(201).json({
       token,
-      user: { id: result.lastInsertRowid, name, email },
+      user: { id: user.id, name, email },
     });
   } catch (err) {
     console.error('Register error:', err);
@@ -49,7 +49,7 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ error: 'Email e senha são obrigatórios' });
     }
 
-    const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+    const user = await db.one('SELECT * FROM users WHERE email = ?', [email]);
     if (!user) {
       return res.status(401).json({ error: 'Email ou senha incorretos' });
     }

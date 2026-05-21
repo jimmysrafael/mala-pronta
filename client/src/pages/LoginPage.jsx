@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { apiFetch } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 
 export default function LoginPage() {
@@ -19,7 +20,7 @@ export default function LoginPage() {
       const endpoint = isLogin ? '/api/auth/login' : '/api/auth/register';
       const body = isLogin ? { email, password } : { name, email, password };
 
-      const res = await fetch(endpoint, {
+      const res = await apiFetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),

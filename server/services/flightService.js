@@ -38,9 +38,8 @@ async function searchFlights({ origin, destination, days, travelers = 1, startDa
   console.log(`date=${departureDate} | returnDate=${returnDate} | travelers=${travelers}`);
   console.log(`key=${maskedKey} | cacheKey=${cacheKey}`);
 
-  // 1. CHECK CACHE (TTL 24h)
   try {
-    const cached = db.prepare('SELECT resultado_json, created_at FROM flight_cache WHERE cache_key = ?').get(cacheKey);
+    const cached = await db.one('SELECT resultado_json, created_at FROM flight_cache WHERE cache_key = ?', [cacheKey]);
     if (cached) {
       const ageHours = (new Date() - new Date(cached.created_at)) / (1000 * 60 * 60);
       if (ageHours < 24) {
@@ -50,7 +49,7 @@ async function searchFlights({ origin, destination, days, travelers = 1, startDa
           provider: 'Sky Scrapper',
           endpoint: '/api/v1/flights/searchFlights',
           cache_hit: 1,
-          request_key: cacheKey
+          request_key: cacheKey,
         });
         return { available: true, data: JSON.parse(cached.resultado_json) };
       }
@@ -61,7 +60,6 @@ async function searchFlights({ origin, destination, days, travelers = 1, startDa
 
   console.log(`[CACHE MISS] tipo=flight_cache | key=${cacheKey}`);
 
-  // 2. API CALL
   try {
     const response = await axios.get(
       'https://sky-scrapper.p.rapidapi.com/api/v1/flights/searchFlights',
@@ -79,7 +77,7 @@ async function searchFlights({ origin, destination, days, travelers = 1, startDa
           sortBy: 'best',
           currency: 'USD',
           market: 'en-US',
-          countryCode: 'US'
+          countryCode: 'US',
         },
       }
     );
@@ -95,25 +93,24 @@ async function searchFlights({ origin, destination, days, travelers = 1, startDa
     console.log(`Object.keys(response.data.data || {})=${Object.keys(apiResponse?.data || {}).join(', ')}`);
     console.log(`Array.isArray(itineraries)=${Array.isArray(itineraries)}`);
 
-    // TRATATIVA DE ERRO DE PARÂMETROS (ENTITY ID OBSOLETO)
     if (apiResponse?.status === false || apiResponse?.message === 'Something went wrong.' || apiResponse?.message?.includes('object Object')) {
       console.log(`[FLIGHTS ERROR RAW]`);
       console.log(JSON.stringify(apiResponse, null, 2));
 
       if (!isRetry) {
         console.warn(`⚠️  [FLIGHTS] API v1 retornou erro na Tentativa 1.`);
-        db.prepare('DELETE FROM airports WHERE skyId IN (?, ?)').run(originAirport.skyId, destAirport.skyId);
-        
-        return { 
-          available: false, 
-          needsRefresh: true, 
+        await db.run('DELETE FROM airports WHERE "skyId" IN (?, ?)', [originAirport.skyId, destAirport.skyId]);
+
+        return {
+          available: false,
+          needsRefresh: true,
           staleIds: [originAirport.skyId, destAirport.skyId],
-          reason: 'Entity IDs obsoletos detectados.' 
+          reason: 'Entity IDs obsoletos detectados.',
         };
-      } else {
-        console.error(`❌ [FLIGHTS] API v1 falhou novamente na Tentativa 2. Usando fallback.`);
-        return { available: false, reason: 'Não foi possível consultar voos em tempo real. Usamos uma estimativa com base no orçamento.', data: [] };
       }
+
+      console.error(`❌ [FLIGHTS] API v1 falhou novamente na Tentativa 2. Usando fallback.`);
+      return { available: false, reason: 'Não foi possível consultar voos em tempo real. Usamos uma estimativa com base no orçamento.', data: [] };
     }
 
     if (itineraries.length === 0) {
@@ -131,13 +128,11 @@ async function searchFlights({ origin, destination, days, travelers = 1, startDa
       const priceBRL = priceUSD * rate;
       const legs = item.legs || [];
       const outboundLeg = legs[0];
-      const returnLeg = legs[1];
-      
       const duration = outboundLeg?.durationInMinutes || 0;
       const stops = outboundLeg?.stopCount ?? 0;
       const airline = outboundLeg?.carriers?.marketing?.[0]?.name || 'N/A';
-      
-      console.log(`[FLIGHT ${index+1}] price=USD ${priceUSD} | duration=${duration} min | stops=${stops} | airline=${airline}`);
+
+      console.log(`[FLIGHT ${index + 1}] price=USD ${priceUSD} | duration=${duration} min | stops=${stops} | airline=${airline}`);
 
       return {
         provider: 'air_scraper',
@@ -147,8 +142,8 @@ async function searchFlights({ origin, destination, days, travelers = 1, startDa
         formattedBRL: new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(priceBRL),
         exchangeRate: rate,
         isExchangeFallback: isFallback,
-        currencyOriginal: "USD",
-        currencyDefault: "BRL",
+        currencyOriginal: 'USD',
+        currencyDefault: 'BRL',
         stops,
         duration: duration ? `${Math.floor(duration / 60)}h${duration % 60}min` : null,
         airline,
@@ -159,9 +154,10 @@ async function searchFlights({ origin, destination, days, travelers = 1, startDa
       };
     });
 
-    // 3. SAVE CACHE
-    db.prepare('INSERT OR REPLACE INTO flight_cache (cache_key, resultado_json, created_at) VALUES (?, ?, CURRENT_TIMESTAMP)')
-      .run(cacheKey, JSON.stringify(offers));
+    await db.run(
+      'INSERT INTO flight_cache (cache_key, resultado_json, created_at) VALUES (?, ?, NOW()) ON CONFLICT (cache_key) DO UPDATE SET resultado_json = EXCLUDED.resultado_json, created_at = NOW()',
+      [cacheKey, JSON.stringify(offers)]
+    );
 
     logApiUsage({
       service_name: 'flights',
@@ -169,7 +165,7 @@ async function searchFlights({ origin, destination, days, travelers = 1, startDa
       endpoint: '/api/v1/flights/searchFlights',
       cache_hit: 0,
       success: 1,
-      request_key: cacheKey
+      request_key: cacheKey,
     });
 
     return { available: true, data: offers };
@@ -183,7 +179,7 @@ async function searchFlights({ origin, destination, days, travelers = 1, startDa
       endpoint: '/api/v1/flights/searchFlights',
       success: 0,
       error_message: err.message,
-      request_key: cacheKey
+      request_key: cacheKey,
     });
     return { available: false, reason: 'Não foi possível consultar voos em tempo real. Usamos uma estimativa com base no orçamento.', data: [] };
   }

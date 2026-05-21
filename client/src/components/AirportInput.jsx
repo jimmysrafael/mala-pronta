@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { apiFetch } from '../lib/api';
 
 export default function AirportInput({ label, icon, placeholder, value, onChange, onSelect }) {
   const [query, setQuery] = useState(value?.airportName || '');
@@ -49,7 +50,7 @@ export default function AirportInput({ label, icon, placeholder, value, onChange
       abortControllerRef.current = controller;
 
       try {
-        const res = await fetch(`/api/airports/search?q=${encodeURIComponent(val)}`, {
+        const res = await apiFetch(`/api/airports/search?q=${encodeURIComponent(val)}`, {
           headers: { Authorization: `Bearer ${token}` },
           signal: controller.signal
         });

@@ -1,123 +1,85 @@
-const Database = require('better-sqlite3');
-const path = require('path');
+require('dotenv').config();
 
-const dbPath = path.join(__dirname, '..', 'malapronta.db');
-const db = new Database(dbPath);
+const { Pool } = require('pg');
 
-// Enable WAL mode for better performance
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
+const connectionString = process.env.DATABASE_URL || process.env.POSTGRES_URL;
 
-// Create tables
-db.exec(`
-  CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    email TEXT UNIQUE NOT NULL,
-    password TEXT NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-
-  CREATE TABLE IF NOT EXISTS trips (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL,
-    destination TEXT NOT NULL,
-    days INTEGER NOT NULL,
-    budget REAL NOT NULL,
-    itinerary TEXT NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-  );
-
-  CREATE TABLE IF NOT EXISTS airports (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    skyId TEXT UNIQUE NOT NULL,
-    entityId TEXT NOT NULL,
-    cityName TEXT NOT NULL,
-    airportName TEXT NOT NULL,
-    iataCode TEXT NOT NULL,
-    subtitle TEXT NOT NULL,
-    cityNameNormalized TEXT,
-    flightPlaceType TEXT,
-    hotelEntityId TEXT
-  );
-
-  -- TABELAS DE CACHE PARA BLINDAGEM DE API
-  CREATE TABLE IF NOT EXISTS trip_cache (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    cache_key TEXT UNIQUE NOT NULL,
-    resultado_json TEXT NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-
-  CREATE TABLE IF NOT EXISTS flight_cache (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    cache_key TEXT UNIQUE NOT NULL,
-    resultado_json TEXT NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-
-  CREATE TABLE IF NOT EXISTS hotel_dest_cache (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    city_name TEXT UNIQUE NOT NULL,
-    dest_id TEXT NOT NULL,
-    search_type TEXT NOT NULL,
-    name TEXT NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-
-  CREATE TABLE IF NOT EXISTS hotel_search_cache (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    cache_key TEXT UNIQUE NOT NULL,
-    resultado_json TEXT NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-
-  CREATE TABLE IF NOT EXISTS attraction_cache (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    city_name TEXT UNIQUE NOT NULL,
-    resultado_json TEXT NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-
-  CREATE TABLE IF NOT EXISTS weather_cache (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    city_name TEXT UNIQUE NOT NULL,
-    resultado_json TEXT NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-
-  CREATE TABLE IF NOT EXISTS api_usage_logs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    service_name TEXT,
-    provider TEXT,
-    endpoint TEXT,
-    cache_hit INTEGER DEFAULT 0,
-    success INTEGER DEFAULT 1,
-    status_code INTEGER,
-    error_message TEXT,
-    request_key TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-
-  CREATE INDEX IF NOT EXISTS idx_airports_search ON airports (cityName, iataCode, airportName);
-  CREATE INDEX IF NOT EXISTS idx_trip_cache_key ON trip_cache (cache_key);
-`);
-
-// MIGRATION: Garantir que a coluna 'name' existe em hotel_dest_cache
-try {
-  const tableInfo = db.prepare("PRAGMA table_info(hotel_dest_cache)").all();
-  const hasName = tableInfo.some(col => col.name === 'name');
-  if (!hasName) {
-    console.log('📦 Migração: Adicionando coluna "name" em hotel_dest_cache...');
-    db.exec('ALTER TABLE hotel_dest_cache ADD COLUMN name TEXT NOT NULL DEFAULT ""');
-    console.log('✅ Migração concluída.');
-  }
-} catch (err) {
-  console.error('❌ Erro na migração do banco:', err.message);
+if (!connectionString) {
+  throw new Error('DATABASE_URL (ou POSTGRES_URL) precisa estar configurada para usar Postgres.');
 }
 
-// Carga inicial de aeroportos (Seed)
+function shouldUseSsl(url) {
+  const mode = String(process.env.PGSSLMODE || process.env.DATABASE_SSL || '').toLowerCase();
+  if (mode === 'disable' || mode === 'false' || mode === '0') return false;
+  if (mode === 'require' || mode === 'true' || mode === '1') return { rejectUnauthorized: false };
+  if (/localhost|127\.0\.0\.1|::1/.test(url)) return false;
+  return { rejectUnauthorized: false };
+}
+
+const pool = new Pool({
+  connectionString,
+  ssl: shouldUseSsl(connectionString),
+  max: Number(process.env.PGPOOL_MAX || 10),
+});
+
+pool.on('error', (err) => {
+  console.error('[PG POOL ERROR]', err);
+});
+
+function toPgSql(sql) {
+  let index = 0;
+  return String(sql).replace(/\?/g, () => `$${++index}`);
+}
+
+async function query(sql, params = [], client = pool) {
+  const text = toPgSql(sql);
+  return client.query(text, params);
+}
+
+async function many(sql, params = [], client = pool) {
+  const result = await query(sql, params, client);
+  return result.rows;
+}
+
+async function one(sql, params = [], client = pool) {
+  const result = await query(sql, params, client);
+  return result.rows[0] || null;
+}
+
+async function run(sql, params = [], client = pool) {
+  const result = await query(sql, params, client);
+  return {
+    rowCount: result.rowCount,
+    lastInsertRowid: result.rows[0]?.id ?? null,
+    rows: result.rows,
+  };
+}
+
+async function transaction(work) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const tx = {
+      query: (sql, params = []) => query(sql, params, client),
+      many: (sql, params = []) => many(sql, params, client),
+      one: (sql, params = []) => one(sql, params, client),
+      run: (sql, params = []) => run(sql, params, client),
+    };
+    const result = await work(tx);
+    await client.query('COMMIT');
+    return result;
+  } catch (err) {
+    try {
+      await client.query('ROLLBACK');
+    } catch (_rollbackErr) {
+      // ignore rollback failures
+    }
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 const commonAirports = [
   ['GRU', '95565050', 'São Paulo', 'Aeroporto Internacional de Guarulhos', 'GRU', 'Brasil'],
   ['CGH', '95565051', 'São Paulo', 'Aeroporto de Congonhas', 'CGH', 'Brasil'],
@@ -137,21 +99,196 @@ const commonAirports = [
   ['NRT', '95565034', 'Tóquio', 'Aeroporto Internacional Narita', 'NRT', 'Japão'],
 ];
 
-const insertAirport = db.prepare('INSERT OR IGNORE INTO airports (skyId, entityId, cityName, airportName, iataCode, subtitle, cityNameNormalized, flightPlaceType, hotelEntityId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
-const count = db.prepare('SELECT COUNT(*) as count FROM airports').get();
-
-const normalize = (str) => str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-
-if (count.count === 0) {
-  const transaction = db.transaction((airports) => {
-    for (const airport of airports) {
-      const normalized = normalize(airport[2]);
-      // Seed data doesn't have flightPlaceType/hotelEntityId yet, so passing null or 'AIRPORT'
-      insertAirport.run(...airport, normalized, 'AIRPORT', null);
-    }
-  });
-  transaction(commonAirports);
-  console.log('✅ Base de aeroportos inicializada com sucesso.');
+function normalize(str) {
+  return String(str || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
 }
 
-module.exports = db;
+async function createSchema() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id BIGSERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      email TEXT UNIQUE NOT NULL,
+      password TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS trips (
+      id BIGSERIAL PRIMARY KEY,
+      user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      destination TEXT NOT NULL,
+      days INTEGER NOT NULL,
+      budget DOUBLE PRECISION NOT NULL,
+      itinerary JSONB NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS airports (
+      id BIGSERIAL PRIMARY KEY,
+      "skyId" TEXT UNIQUE NOT NULL,
+      "entityId" TEXT NOT NULL,
+      "cityName" TEXT NOT NULL,
+      "airportName" TEXT NOT NULL,
+      "iataCode" TEXT NOT NULL UNIQUE,
+      subtitle TEXT NOT NULL,
+      "cityNameNormalized" TEXT,
+      "flightPlaceType" TEXT,
+      "hotelEntityId" TEXT
+    )
+  `);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS trip_cache (
+      id BIGSERIAL PRIMARY KEY,
+      cache_key TEXT UNIQUE NOT NULL,
+      resultado_json TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS flight_cache (
+      id BIGSERIAL PRIMARY KEY,
+      cache_key TEXT UNIQUE NOT NULL,
+      resultado_json TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS hotel_dest_cache (
+      id BIGSERIAL PRIMARY KEY,
+      city_name TEXT UNIQUE NOT NULL,
+      dest_id TEXT NOT NULL,
+      search_type TEXT NOT NULL,
+      name TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS hotel_search_cache (
+      id BIGSERIAL PRIMARY KEY,
+      cache_key TEXT UNIQUE NOT NULL,
+      resultado_json TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS attraction_cache (
+      id BIGSERIAL PRIMARY KEY,
+      city_name TEXT UNIQUE NOT NULL,
+      resultado_json TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS weather_cache (
+      id BIGSERIAL PRIMARY KEY,
+      city_name TEXT UNIQUE NOT NULL,
+      resultado_json TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS api_usage_logs (
+      id BIGSERIAL PRIMARY KEY,
+      service_name TEXT,
+      provider TEXT,
+      endpoint TEXT,
+      cache_hit INTEGER DEFAULT 0,
+      success INTEGER DEFAULT 1,
+      status_code INTEGER,
+      error_message TEXT,
+      request_key TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await query(`CREATE INDEX IF NOT EXISTS idx_airports_search ON airports ("cityName", "iataCode", "airportName")`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_airports_normalized ON airports ("cityNameNormalized")`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_trip_cache_key ON trip_cache (cache_key)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_flight_cache_key ON flight_cache (cache_key)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_hotel_search_cache_key ON hotel_search_cache (cache_key)`);
+}
+
+async function seedAirportsIfNeeded() {
+  const countRow = await one('SELECT COUNT(*)::int AS count FROM airports');
+  if ((countRow?.count || 0) > 0) {
+    return;
+  }
+
+  const insertAirportSql = `
+    INSERT INTO airports (
+      "skyId",
+      "entityId",
+      "cityName",
+      "airportName",
+      "iataCode",
+      subtitle,
+      "cityNameNormalized",
+      "flightPlaceType",
+      "hotelEntityId"
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT ("skyId") DO UPDATE SET
+      "entityId" = EXCLUDED."entityId",
+      "cityName" = EXCLUDED."cityName",
+      "airportName" = EXCLUDED."airportName",
+      "iataCode" = EXCLUDED."iataCode",
+      subtitle = EXCLUDED.subtitle,
+      "cityNameNormalized" = EXCLUDED."cityNameNormalized",
+      "flightPlaceType" = EXCLUDED."flightPlaceType",
+      "hotelEntityId" = EXCLUDED."hotelEntityId"
+  `;
+
+  await transaction(async (tx) => {
+    for (const airport of commonAirports) {
+      await tx.run(insertAirportSql, [
+        airport[0],
+        airport[1],
+        airport[2],
+        airport[3],
+        airport[4],
+        airport[5],
+        normalize(airport[2]),
+        'AIRPORT',
+        null,
+      ]);
+    }
+  });
+
+  console.log('Base de aeroportos inicializada com sucesso.');
+}
+
+let initPromise = null;
+
+async function initDb() {
+  if (!initPromise) {
+    initPromise = (async () => {
+      await createSchema();
+      await seedAirportsIfNeeded();
+    })();
+  }
+
+  return initPromise;
+}
+
+module.exports = {
+  pool,
+  query,
+  many,
+  one,
+  run,
+  transaction,
+  initDb,
+};

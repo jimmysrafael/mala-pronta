@@ -7,6 +7,7 @@ import LoadingOverlay from '../components/LoadingOverlay';
 import { useToast } from '../components/Toast';
 import { formatCurrency } from '../utils/helpers';
 import AirportInput from '../components/AirportInput';
+import { apiFetch } from '../lib/api';
 
 export default function HomePage() {
   const [originAirport, setOriginAirport] = useState(null);
@@ -81,7 +82,7 @@ export default function HomePage() {
 
     setLoading(true);
     try {
-      const res = await fetch('/api/trips/generate', {
+      const res = await apiFetch('/api/trips/generate', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

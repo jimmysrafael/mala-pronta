@@ -1,0 +1,8 @@
+client
+node_modules
+.env
+malapronta.db
+malapronta.db-shm
+malapronta.db-wal
+README.md
+.git

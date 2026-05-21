@@ -3,8 +3,8 @@ const db = require('../db');
 const { logApiUsage } = require('./apiLogger');
 
 const MONTH_NAMES = [
-  'Janeiro','Fevereiro','Março','Abril','Maio','Junho',
-  'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro',
+  'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+  'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro',
 ];
 
 async function getWeatherInsights({ destination }) {
@@ -13,9 +13,8 @@ async function getWeatherInsights({ destination }) {
     : destination;
   const city = cityRaw.split(',')[0].trim();
 
-  // 1. CHECK CACHE (TTL 6h)
   try {
-    const cached = db.prepare('SELECT resultado_json, created_at FROM weather_cache WHERE city_name = ?').get(city);
+    const cached = await db.one('SELECT resultado_json, created_at FROM weather_cache WHERE city_name = ?', [city]);
     if (cached) {
       const createdAt = new Date(cached.created_at);
       const now = new Date();
@@ -28,7 +27,7 @@ async function getWeatherInsights({ destination }) {
           provider: 'Open-Meteo',
           endpoint: '/forecast',
           cache_hit: 1,
-          request_key: city
+          request_key: city,
         });
         return { available: true, data: JSON.parse(cached.resultado_json) };
       }
@@ -39,15 +38,14 @@ async function getWeatherInsights({ destination }) {
 
   console.log(`[CACHE MISS] tipo=weather_cache | key=${city}`);
 
-  // 2. API CALL COM SEQUÊNCIA DE FALLBACK
   try {
-    const normalize = (str) => str.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-    
+    const normalize = (str) => str.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
     const attempts = [
-      city, // Original
-      city.replace(/^Ilha de\s+/i, ''), // Sem "Ilha de"
-      normalize(city.replace(/^Ilha de\s+/i, '')), // Sem "Ilha de" e sem acentos
-      `${normalize(city.replace(/^Ilha de\s+/i, ''))}, Colombia`, // Específico para San Andrés se falhar
+      city,
+      city.replace(/^Ilha de\s+/i, ''),
+      normalize(city.replace(/^Ilha de\s+/i, '')),
+      `${normalize(city.replace(/^Ilha de\s+/i, ''))}, Colombia`,
     ];
 
     let loc = null;
@@ -59,7 +57,7 @@ async function getWeatherInsights({ destination }) {
       try {
         const geoRes = await axios.get('https://geocoding-api.open-meteo.com/v1/search', {
           params: { name: q, count: 1, language: 'pt', format: 'json' },
-          timeout: 3000
+          timeout: 3000,
         });
         loc = geoRes.data.results?.[0];
         if (loc) {
@@ -79,7 +77,7 @@ async function getWeatherInsights({ destination }) {
         endpoint: '/geocoding',
         success: 0,
         error_message: 'City not found',
-        request_key: city
+        request_key: city,
       });
       return { available: false, data: null };
     }
@@ -127,9 +125,10 @@ async function getWeatherInsights({ destination }) {
       recommendation,
     };
 
-    // 3. SAVE CACHE
-    db.prepare('INSERT OR REPLACE INTO weather_cache (city_name, resultado_json, created_at) VALUES (?, ?, CURRENT_TIMESTAMP)')
-      .run(city, JSON.stringify(result));
+    await db.run(
+      'INSERT INTO weather_cache (city_name, resultado_json, created_at) VALUES (?, ?, NOW()) ON CONFLICT (city_name) DO UPDATE SET resultado_json = EXCLUDED.resultado_json, created_at = NOW()',
+      [city, JSON.stringify(result)]
+    );
 
     logApiUsage({
       service_name: 'weather',
@@ -137,7 +136,7 @@ async function getWeatherInsights({ destination }) {
       endpoint: '/forecast',
       cache_hit: 0,
       success: 1,
-      request_key: city
+      request_key: city,
     });
 
     return { available: true, data: result };
@@ -148,7 +147,7 @@ async function getWeatherInsights({ destination }) {
       endpoint: '/forecast',
       success: 0,
       error_message: err.message,
-      request_key: city
+      request_key: city,
     });
     return { available: false, data: null };
   }

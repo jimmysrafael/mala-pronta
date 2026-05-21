@@ -6,7 +6,7 @@ Planejador de viagens inteligente com IA. Gere roteiros personalizados usando GP
 
 - **Frontend:** React + Vite + Tailwind CSS
 - **Backend:** Node.js + Express
-- **Banco de Dados:** SQLite (better-sqlite3)
+- **Banco de Dados:** Postgres gerenciado
 - **IA:** OpenAI API (gpt-4o-mini)
 - **Autenticação:** JWT + bcrypt
 - **APIs Externas:** Amadeus (voos/hotéis), OpenTripMap (atrações), Open-Meteo (clima)
@@ -72,4 +72,68 @@ npm run build
 npm start
 ```
 
-O `build` instala as dependências do client e gera o bundle de produção. O `start` sobe o Express servindo o build estático + API REST na porta configurada.
+O `build` gera apenas o bundle do frontend. O `start` sobe somente a API Express.
+
+## Deploy separado
+
+Para subir o projeto com front, back e banco desacoplados:
+
+### Opção recomendada
+
+- **Frontend**: Vercel
+- **Backend**: Cloud Run
+- **Banco**: Neon
+
+Variáveis importantes:
+
+#### Vercel
+
+- Root Directory: `client`
+- Build Command: `npm run build`
+- Output Directory: `dist`
+- Environment Variables:
+  - `VITE_API_URL=https://api.seu-dominio.com`
+
+#### Cloud Run
+
+- Deploy source: `Dockerfile` na raiz
+- Port: Cloud Run injeta `PORT`, não defina manualmente
+- Environment Variables:
+  - `NODE_ENV=production`
+  - `CORS_ORIGIN=https://seu-dominio.com,https://*.vercel.app`
+  - `CLIENT_URL=https://seu-dominio.com`
+  - `DATABASE_URL=postgresql://user:password@host:5432/malapronta?sslmode=require`
+  - `PGSSLMODE=require`
+  - `OPENAI_API_KEY=...`
+  - `RAPIDAPI_KEY=...`
+  - `OPENTRIPMAP_API_KEY=...`
+
+#### Neon
+
+- Use a pooled connection string if você esperar mais concorrência.
+- Guarde a string em `DATABASE_URL`.
+
+### Alternativa simples
+
+- **Frontend**: Vercel
+- **Backend**: Render Web Service
+- **Banco**: Neon
+
+#### Render
+
+- Root Directory: repo raiz
+- Build Command: `npm install`
+- Start Command: `npm start`
+- Environment Variables:
+  - `NODE_ENV=production`
+  - `CORS_ORIGIN=https://seu-dominio.com,https://*.vercel.app`
+  - `CLIENT_URL=https://seu-dominio.com`
+  - `DATABASE_URL=postgresql://user:password@host:5432/malapronta?sslmode=require`
+  - `PGSSLMODE=require`
+  - `OPENAI_API_KEY=...`
+  - `RAPIDAPI_KEY=...`
+  - `OPENTRIPMAP_API_KEY=...`
+
+#### Render port
+
+- O Render injeta `PORT` automaticamente no web service. Não precisa definir manualmente.
