@@ -1,4 +1,5 @@
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 
 const tabs = [
   { path: '/', icon: 'home', label: 'Início' },
@@ -9,6 +10,11 @@ const tabs = [
 export default function BottomNav() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { user } = useAuth();
+
+  if (!user) {
+    return null;
+  }
 
   return (
     <nav
@@ -27,11 +33,7 @@ export default function BottomNav() {
             key={tab.path}
             onClick={() => navigate(tab.path)}
             className="flex flex-col items-center gap-0.5 py-1.5 px-5 rounded-2xl transition-all duration-200"
-            style={
-              active
-                ? { background: '#d1fae5' }
-                : {}
-            }
+            style={active ? { background: '#d1fae5' } : {}}
           >
             <span
               className={`material-symbols-rounded ${active ? 'filled' : ''} text-[24px] transition-colors`}
