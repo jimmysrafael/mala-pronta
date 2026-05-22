@@ -8,12 +8,39 @@
   box-sizing: border-box;
 }
 
+html,
+body,
+#root {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+html {
+  overscroll-behavior-x: none;
+}
+
 body {
   font-family: 'Inter', sans-serif;
   background-color: #f8f9f9;
   color: #191c1c;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  min-width: 320px;
+  overflow-x: hidden;
+}
+
+body,
+#root {
+  min-height: 100vh;
+}
+
+img,
+video,
+svg,
+canvas {
+  display: block;
+  max-width: 100%;
 }
 
 .font-display {

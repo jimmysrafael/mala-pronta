@@ -35,14 +35,14 @@ export default function Header({ title, showBack, onBack }) {
 
   return (
     <header
-      className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-5 py-3"
+      className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between gap-3 px-4 py-3 sm:px-5"
       style={{
         background: 'rgba(248,249,249,0.8)',
         backdropFilter: 'blur(20px)',
         WebkitBackdropFilter: 'blur(20px)',
       }}
     >
-      <div className="flex items-center gap-2">
+      <div className="flex min-w-0 flex-1 items-center gap-2">
         {showBack && (
           <button
             onClick={onBack}
@@ -51,11 +51,11 @@ export default function Header({ title, showBack, onBack }) {
             <span className="material-symbols-rounded text-on-surface">arrow_back</span>
           </button>
         )}
-        <div className="flex items-center gap-1.5">
+        <div className="flex min-w-0 items-center gap-1.5">
           <span className="material-symbols-rounded filled text-primary text-[28px]">
             flight_takeoff
           </span>
-          <span className="font-display font-bold text-lg text-on-surface tracking-tight">
+          <span className="truncate font-display font-bold text-lg text-on-surface tracking-tight">
             {title || 'MalaPronta IA'}
           </span>
         </div>
@@ -75,7 +75,7 @@ export default function Header({ title, showBack, onBack }) {
         </div>
       )}
       {showBack && (
-        <span className="material-symbols-rounded filled text-primary text-[28px]">
+        <span className="material-symbols-rounded filled flex-shrink-0 text-primary text-[28px]">
           flight_takeoff
         </span>
       )}
