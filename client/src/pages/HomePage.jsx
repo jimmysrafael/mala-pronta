@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import Header from '../components/Header';
 import BottomNav from '../components/BottomNav';
 import LoadingOverlay from '../components/LoadingOverlay';
+import MonetizationGate from '../components/MonetizationGate';
 import { useToast } from '../components/Toast';
 import { formatCurrency } from '../utils/helpers';
 import AirportInput from '../components/AirportInput';
@@ -21,6 +22,10 @@ export default function HomePage() {
   const [showVideoBackground, setShowVideoBackground] = useState(false);
   const [budgetDecisionPrompt, setBudgetDecisionPrompt] = useState(null);
   const [budgetDecisionLoading, setBudgetDecisionLoading] = useState(false);
+  const [monetizationPrompt, setMonetizationPrompt] = useState(null);
+  const [monetizationLoading, setMonetizationLoading] = useState(false);
+  const [walletStatus, setWalletStatus] = useState(null);
+  const [walletStatusLoading, setWalletStatusLoading] = useState(false);
   const { token, user } = useAuth();
   const navigate = useNavigate();
   const toast = useToast();
@@ -46,6 +51,35 @@ export default function HomePage() {
       connection?.removeEventListener?.('change', updatePreference);
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadWalletStatus = async () => {
+      setWalletStatusLoading(true);
+      try {
+        const res = await apiFetch('/api/monetization/status');
+        const data = await res.json();
+        if (res.ok && !cancelled) {
+          setWalletStatus(data);
+        }
+      } catch (_err) {
+        if (!cancelled) {
+          setWalletStatus(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setWalletStatusLoading(false);
+        }
+      }
+    };
+
+    loadWalletStatus();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
 
   const getGeneratePayload = () => {
     let finalDays = days;
@@ -99,6 +133,13 @@ export default function HomePage() {
     });
 
     const data = await res.json();
+    if (res.status === 402) {
+      const error = new Error(data.error || 'Limite de consultas atingido');
+      error.paymentRequired = true;
+      error.monetization = data.monetization || null;
+      throw error;
+    }
+
     if (!res.ok) throw new Error(data.error || 'Erro ao gerar roteiro');
     return data;
   };
@@ -148,6 +189,14 @@ export default function HomePage() {
         },
       });
     } catch (err) {
+      if (err.paymentRequired) {
+        setMonetizationPrompt({
+          ...err.monetization,
+          requestBody: generateData.payload,
+          finalDays: generateData.finalDays,
+        });
+        return;
+      }
       toast(err.message, 'error');
     } finally {
       setLoading(false);
@@ -187,6 +236,108 @@ export default function HomePage() {
     }
   };
 
+  const refreshWalletStatus = async () => {
+    try {
+      const res = await apiFetch('/api/monetization/status');
+      const data = await res.json();
+      if (res.ok) {
+        setWalletStatus(data);
+      }
+    } catch (_err) {
+      // Mantem o saldo anterior se a consulta falhar.
+    }
+  };
+
+  const handleWatchReward = async () => {
+    if (!monetizationPrompt) return;
+
+    setMonetizationLoading(true);
+    setLoading(true);
+
+    try {
+      const sessionRes = await apiFetch('/api/monetization/reward-session', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          unlockCredits: 2,
+          provider: 'mock',
+        }),
+      });
+
+      const sessionData = await sessionRes.json();
+      if (!sessionRes.ok) {
+        throw new Error(sessionData.error || 'Nao foi possivel iniciar a recompensa');
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 1800));
+
+      const claimRes = await apiFetch('/api/monetization/reward-claim', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          sessionId: sessionData.sessionId,
+          provider: sessionData.provider,
+        }),
+      });
+
+      const claimData = await claimRes.json();
+      if (!claimRes.ok) {
+        throw new Error(claimData.error || 'Nao foi possivel liberar as consultas');
+      }
+
+      toast(claimData.message || 'Consultas liberadas com sucesso!');
+      await refreshWalletStatus();
+
+      const retryData = await submitGenerateRequest(monetizationPrompt.requestBody);
+      setMonetizationPrompt(null);
+
+      if (retryData?.needsBudgetDecision) {
+        setBudgetDecisionPrompt({
+          previewToken: retryData.previewToken,
+          budgetUsage: retryData.budgetUsage,
+          decisionOptions: retryData.decisionOptions || [],
+          preview: retryData.preview || null,
+          message: retryData.message || 'O orÃ§amento estÃ¡ apertado. Escolha como deseja continuar.',
+          requestBody: monetizationPrompt.requestBody,
+          finalDays: monetizationPrompt.finalDays,
+        });
+        return;
+      }
+
+      navigate('/itinerary', {
+        state: {
+          itinerary: retryData,
+          destination: destAirport.cityName,
+          days: monetizationPrompt.finalDays,
+          budget: retryData.totalBudget || retryData.budgetBreakdown?.total || budget,
+          startDate: monetizationPrompt.requestBody.startDate || '',
+          returnDate: monetizationPrompt.requestBody.returnDate || '',
+          isNew: true,
+        },
+      });
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      setMonetizationLoading(false);
+      setLoading(false);
+    }
+  };
+
+  const handleOpenOffer = (offer) => {
+    if (!offer) return;
+
+    if (offer.enabled && offer.url) {
+      window.open(offer.url, '_blank', 'noopener,noreferrer');
+      return;
+    }
+
+    toast('Este plano ainda nao foi configurado.', 'error');
+  };
+
   return (
     <>
       {loading && <LoadingOverlay />}
@@ -219,12 +370,74 @@ export default function HomePage() {
             <p className="font-body text-sm text-on-surface-variant leading-relaxed">
               Roteiros personalizados para o seu próximo destino, montados em poucos segundos.
             </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {[
+                { to: '/sobre', label: 'Sobre' },
+                { to: '/contato', label: 'Contato' },
+                { to: '/termos', label: 'Termos' },
+                { to: '/privacidade', label: 'Privacidade' },
+              ].map((item) => (
+                <Link
+                  key={item.to}
+                  to={item.to}
+                  className="rounded-full bg-white/80 px-3 py-1.5 text-[11px] font-semibold text-on-surface-variant shadow-sm backdrop-blur-md transition-colors hover:bg-white hover:text-primary"
+                >
+                  {item.label}
+                </Link>
+              ))}
+            </div>
+          </section>
+
+          <section
+            className="mb-8 grid gap-3 rounded-3xl bg-surface-container-lowest/88 p-5 shadow-[0_8px_32px_rgba(0,0,0,0.04)] backdrop-blur-[10px] animate-fade-in-up"
+            style={{ animationDelay: '0.05s' }}
+          >
+            <div>
+              <p className="mb-2 inline-flex rounded-full bg-primary/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-primary">
+                Como funciona
+              </p>
+              <h2 className="font-display text-lg font-bold text-on-surface">
+                Um jeito mais simples de planejar sua viagem.
+              </h2>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-3">
+              {[
+                '1 consulta gratuita para cada visitante',
+                'Recompensa por anúncio para liberar mais consultas',
+                'Planos e pacotes opcionais por checkout Pix',
+              ].map((item) => (
+                <div key={item} className="rounded-2xl bg-surface-container-low p-4">
+                  <p className="font-body text-sm leading-relaxed text-on-surface-variant">{item}</p>
+                </div>
+              ))}
+            </div>
+            <p className="rounded-2xl bg-[#f3f6f5] px-4 py-3 font-body text-xs leading-relaxed text-on-surface-variant">
+              As estimativas podem variar conforme disponibilidade real de voos, hotéis e atrações. O serviço é informativo e depende de integrações de terceiros para montar o roteiro final.
+            </p>
           </section>
 
           <section
             className="rounded-3xl p-6 mb-10 animate-fade-in-up bg-surface-container-lowest/88 backdrop-blur-[10px]"
             style={{ boxShadow: '0 8px 32px rgba(0,0,0,0.04)', animationDelay: '0.1s' }}
           >
+            <div className="mb-5 rounded-2xl border border-surface-container-high bg-[#f3f6f5] px-4 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="font-body text-[10px] font-semibold uppercase tracking-wider text-on-surface-variant">
+                    Consultas disponiveis
+                  </p>
+                  <p className="font-display text-sm font-bold text-on-surface">
+                    {walletStatusLoading ? 'Carregando...' : `${walletStatus?.availableConsultations ?? 1} consultas`}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="font-body text-[10px] text-on-surface-variant">
+                    1 consulta gratis, depois desbloqueio por anuncio ou plano.
+                  </p>
+                </div>
+              </div>
+            </div>
+
             <AirportInput
               label="Cidade de origem"
               icon="flight_takeoff"
@@ -486,7 +699,16 @@ export default function HomePage() {
             </div>
           </div>
         </div>
-      )}
+      )} 
+
+      <MonetizationGate
+        open={Boolean(monetizationPrompt)}
+        status={monetizationPrompt}
+        loading={monetizationLoading}
+        onClose={() => setMonetizationPrompt(null)}
+        onWatchReward={handleWatchReward}
+        onOpenOffer={handleOpenOffer}
+      />
 
       {user && <BottomNav />}
     </>

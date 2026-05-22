@@ -6,6 +6,7 @@ const helmet = require('helmet');
 
 const authRoutes = require('./routes/auth');
 const tripRoutes = require('./routes/trips');
+const monetizationRoutes = require('./routes/monetization');
 const airportRoutes = require('./routes/airports');
 const logger = require('./utils/logger');
 
@@ -104,6 +105,7 @@ app.get('/healthz', (_req, res) => {
 
 app.use('/api/auth', authRoutes);
 app.use('/api/trips', tripRoutes);
+app.use('/api/monetization', monetizationRoutes);
 app.use('/api/airports', airportRoutes);
 
 app.use((err, _req, res, _next) => {
