@@ -1,4 +1,4 @@
-import { useLocation, useNavigate } from 'react-router-dom';
+﻿import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/Toast';
 import Header from '../components/Header';
@@ -129,40 +129,40 @@ export default function ItineraryPage() {
               travel_explore
             </span>
           </div>
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[200px] bg-gradient-to-t from-[#f8f9f9] via-[#f8f9f9]/88 to-transparent" />
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[210px] bg-gradient-to-t from-[#f8f9f9] via-[#f8f9f9]/90 to-transparent" />
           {/* Text overlay */}
-          <div className="absolute bottom-8 left-5 right-5 z-10 max-w-[672px] mx-auto">
-            <h1 className="font-display font-extrabold text-[36px] leading-tight text-white drop-shadow-lg">
+          <div className="absolute bottom-8 left-5 right-5 z-10 mx-auto max-w-[672px] rounded-[28px] bg-black/12 px-4 py-4 backdrop-blur-[2px] shadow-[0_12px_30px_rgba(0,0,0,0.12)]">
+            <h1 className="font-display font-extrabold text-[36px] leading-tight text-white drop-shadow-[0_2px_10px_rgba(0,0,0,0.45)]" style={{ textShadow: '0 2px 10px rgba(0,0,0,0.45)' }}>
               {itinerary.destination || destination}
             </h1>
             <div className="flex items-center gap-1.5 mt-2">
               <span className="material-symbols-rounded filled text-[18px]" style={{ color: '#ffd167' }}>
                 location_on
               </span>
-              <span className="font-body text-sm text-white/90 font-medium">
+              <span className="font-body text-sm font-semibold text-white/95" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.45)' }}>
                 {itinerary.country || ''}
               </span>
             </div>
             {(tripStartDate || tripReturnDate) && (
-              <div className="mt-3 flex flex-wrap gap-2">
-                <div className="inline-flex items-center gap-2 rounded-2xl bg-white/15 px-3 py-2 backdrop-blur-md">
-                  <span className="material-symbols-rounded text-[18px] text-white/90">flight_takeoff</span>
+              <div className="mt-3 flex flex-nowrap gap-2 sm:flex-wrap">
+                <div className="inline-flex flex-1 min-w-0 items-center gap-1.5 rounded-2xl border border-white/15 bg-black/22 px-2.5 py-1.5 shadow-[0_6px_20px_rgba(0,0,0,0.14)] backdrop-blur-md sm:flex-none sm:gap-2 sm:px-3 sm:py-2">
+                  <span className="material-symbols-rounded text-[16px] text-white/95 drop-shadow-[0_1px_4px_rgba(0,0,0,0.4)] sm:text-[18px]">flight_takeoff</span>
                   <div className="leading-tight">
-                    <p className="font-body text-[10px] font-semibold uppercase tracking-wider text-white/70">
+                    <p className="font-body text-[9px] font-semibold uppercase tracking-wider text-white/78 sm:text-[10px]">
                       Ida
                     </p>
-                    <p className="font-display text-sm font-bold text-white">
+                    <p className="font-display text-[10px] font-bold text-white drop-shadow-[0_1px_4px_rgba(0,0,0,0.35)] sm:text-sm">
                       {tripStartDate ? formatDate(tripStartDate) : 'Não informada'}
                     </p>
                   </div>
                 </div>
-                <div className="inline-flex items-center gap-2 rounded-2xl bg-white/15 px-3 py-2 backdrop-blur-md">
-                  <span className="material-symbols-rounded text-[18px] text-white/90">flight_land</span>
+                <div className="inline-flex flex-1 min-w-0 items-center gap-1.5 rounded-2xl border border-white/15 bg-black/22 px-2.5 py-1.5 shadow-[0_6px_20px_rgba(0,0,0,0.14)] backdrop-blur-md sm:flex-none sm:gap-2 sm:px-3 sm:py-2">
+                  <span className="material-symbols-rounded text-[16px] text-white/95 drop-shadow-[0_1px_4px_rgba(0,0,0,0.4)] sm:text-[18px]">flight_land</span>
                   <div className="leading-tight">
-                    <p className="font-body text-[10px] font-semibold uppercase tracking-wider text-white/70">
+                    <p className="font-body text-[9px] font-semibold uppercase tracking-wider text-white/78 sm:text-[10px]">
                       Volta
                     </p>
-                    <p className="font-display text-sm font-bold text-white">
+                    <p className="font-display text-[10px] font-bold text-white drop-shadow-[0_1px_4px_rgba(0,0,0,0.35)] sm:text-sm">
                       {tripReturnDate ? formatDate(tripReturnDate) : 'Não informada'}
                     </p>
                   </div>
