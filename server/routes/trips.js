@@ -12,6 +12,11 @@ const { searchAirports } = require('../services/airportService');
 const { buildFeasiblePlan } = require('../services/tripPlannerService');
 const { generateAIItinerary } = require('../services/aiItineraryService');
 const { logApiUsage } = require('../services/apiLogger');
+const {
+  consumeConsultation,
+  getWalletStatus,
+  refundConsultation,
+} = require('../services/monetizationService');
 const logger = require('../utils/logger');
 
 const router = express.Router();
@@ -243,6 +248,18 @@ router.post('/generate', optionalAuth, generateLimiter, async (req, res) => {
     }
 
     const processTrip = async () => {
+      const consultation = await consumeConsultation(req);
+      if (!consultation.allowed) {
+        return {
+          paymentRequired: true,
+          error: 'Limite de consultas atingido.',
+          monetization: {
+            ...consultation,
+            wallet: await getWalletStatus(req),
+          },
+        };
+      }
+
       const cacheKey = budgetDecision ? `${baseCacheKey}-${budgetDecision}` : baseCacheKey;
       const cached = await db.one('SELECT resultado_json, created_at FROM trip_cache WHERE cache_key = ?', [cacheKey]);
       if (cached) {
@@ -264,17 +281,20 @@ router.post('/generate', optionalAuth, generateLimiter, async (req, res) => {
 
       if (budgetDecision) {
         if (budgetDecision !== 'adapt_without_api' && budgetDecision !== 'use_real_values') {
+          await refundConsultation(req, consultation.source);
           return { error: 'Modo de planejamento invalido' };
         }
 
         let tripPlan;
         if (budgetDecision === 'use_real_values') {
           if (!previewToken) {
+            await refundConsultation(req, consultation.source);
             return { error: 'Token de planejamento ausente' };
           }
 
           const preview = readBudgetPreview(previewToken);
           if (!preview) {
+            await refundConsultation(req, consultation.source);
             return { error: 'Avaliação de orçamento expirada. Gere o roteiro novamente.' };
           }
 
@@ -430,6 +450,13 @@ router.post('/generate', optionalAuth, generateLimiter, async (req, res) => {
     try {
       const result = await tripPromise;
       if (result?.error) {
+        if (result.paymentRequired) {
+          return res.status(402).json({
+            error: result.error,
+            paymentRequired: true,
+            monetization: result.monetization,
+          });
+        }
         return res.status(400).json({ error: result.error });
       }
       res.json(result);
