@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { apiFetch } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 
@@ -9,7 +10,31 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showVideoBackground, setShowVideoBackground] = useState(false);
   const { login } = useAuth();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const reduceMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+
+    const updatePreference = () => {
+      const shouldReduceMotion = reduceMotionQuery.matches || connection?.saveData;
+      setShowVideoBackground(!shouldReduceMotion);
+    };
+
+    updatePreference();
+
+    reduceMotionQuery.addEventListener?.('change', updatePreference);
+    connection?.addEventListener?.('change', updatePreference);
+
+    return () => {
+      reduceMotionQuery.removeEventListener?.('change', updatePreference);
+      connection?.removeEventListener?.('change', updatePreference);
+    };
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -29,7 +54,7 @@ export default function LoginPage() {
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.error || 'Erro ao processar sua solicitação');
+        throw new Error(data.error || 'Erro ao processar sua solicitaÃ§Ã£o');
       }
 
       login(data.token, data.user);
@@ -41,150 +66,179 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-5 py-10 relative overflow-hidden">
-      {/* Background gradient */}
-      <div
-        className="absolute inset-0 -z-10"
-        style={{
-          background:
-            'linear-gradient(135deg, rgba(15,82,56,0.06) 0%, rgba(45,106,79,0.04) 50%, rgba(177,240,206,0.08) 100%)',
-        }}
-      />
-      {/* Decorative circles */}
-      <div className="absolute -top-32 -right-32 w-80 h-80 rounded-full opacity-[0.04] bg-primary -z-10" />
-      <div className="absolute -bottom-24 -left-24 w-64 h-64 rounded-full opacity-[0.06] bg-primary -z-10" />
+    <div className="relative min-h-screen overflow-hidden px-5 py-6 sm:py-10">
+      <div className="pointer-events-none absolute inset-0 -z-20 bg-[radial-gradient(circle_at_top,rgba(177,240,206,0.45),transparent_36%),linear-gradient(180deg,#f8f9f9_0%,#f3f6f5_100%)]" />
 
-      <div className="w-full max-w-[400px] animate-fade-in-up">
-        {/* Logo */}
-        <div className="flex flex-col items-center mb-10">
-          <div className="w-16 h-16 rounded-3xl bg-primary flex items-center justify-center mb-4 shadow-lg" style={{ boxShadow: '0 8px 32px rgba(15,82,56,0.15)' }}>
-            <span className="material-symbols-rounded filled text-white text-[32px]">
-              flight_takeoff
-            </span>
-          </div>
-          <h1 className="font-display font-extrabold text-2xl text-on-surface">MalaPronta</h1>
-          <p className="font-body text-sm text-on-surface-variant mt-1">
-            Sua viagem perfeita começa aqui
-          </p>
+      {showVideoBackground && (
+        <div className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
+          <video
+            className="h-full w-full object-cover scale-[1.03] opacity-45"
+            autoPlay
+            muted
+            loop
+            playsInline
+            preload="metadata"
+            aria-hidden="true"
+            onError={() => setShowVideoBackground(false)}
+          >
+            <source src="/background-mala-pronta.mp4" type="video/mp4" />
+          </video>
+          <div className="absolute inset-0 bg-gradient-to-b from-[#f8f9f9]/55 via-[#f8f9f9]/78 to-[#f8f9f9]/96" />
         </div>
+      )}
 
-        {/* Card  */}
-        <div
-          className="bg-surface-container-lowest rounded-3xl p-7"
-          style={{ boxShadow: '0 8px 32px rgba(0,0,0,0.04)' }}
-        >
-          {/* Toggle */}
-          <div className="flex bg-surface-container-high rounded-2xl p-1 mb-7">
-            <button
-              onClick={() => { setIsLogin(true); setError(''); }}
-              className={`flex-1 py-2.5 rounded-xl font-body font-semibold text-sm transition-all duration-200 ${
-                isLogin
-                  ? 'bg-surface-container-lowest text-on-surface shadow-sm'
-                  : 'text-on-surface-variant'
-              }`}
+      <button
+        type="button"
+        onClick={() => navigate('/')}
+        className="relative z-20 mb-6 inline-flex items-center gap-2 self-start rounded-full border border-white/70 bg-white/80 px-4 py-2 text-sm font-semibold text-on-surface shadow-lg backdrop-blur-md transition-all duration-200 hover:scale-[1.02] hover:bg-white md:absolute md:left-5 md:top-5 md:mb-0"
+        style={{ boxShadow: '0 8px 32px rgba(0,0,0,0.08)' }}
+      >
+        <span className="material-symbols-rounded text-[18px]">arrow_back</span>
+        Voltar para home
+      </button>
+
+      <div className="flex min-h-[calc(100vh-4rem)] items-center justify-center md:min-h-[calc(100vh-5rem)]">
+        <div className="w-full max-w-[400px] animate-fade-in-up">
+          <div className="flex flex-col items-center mb-10 pt-1 md:pt-0">
+            <div
+              className="w-16 h-16 rounded-3xl bg-primary flex items-center justify-center mb-4 shadow-lg"
+              style={{ boxShadow: '0 8px 32px rgba(15,82,56,0.15)' }}
             >
-              Entrar
-            </button>
-            <button
-              onClick={() => { setIsLogin(false); setError(''); }}
-              className={`flex-1 py-2.5 rounded-xl font-body font-semibold text-sm transition-all duration-200 ${
-                !isLogin
-                  ? 'bg-surface-container-lowest text-on-surface shadow-sm'
-                  : 'text-on-surface-variant'
-              }`}
-            >
-              Cadastrar
-            </button>
+              <span className="material-symbols-rounded filled text-white text-[32px]">
+                flight_takeoff
+              </span>
+            </div>
+            <h1 className="font-display font-extrabold text-2xl text-on-surface">MalaPronta</h1>
+            <p className="font-body text-sm text-on-surface-variant mt-1">
+              Sua viagem perfeita comeÃ§a aqui
+            </p>
           </div>
 
-          <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-            {!isLogin && (
+          <div
+            className="bg-surface-container-lowest rounded-3xl p-7"
+            style={{ boxShadow: '0 8px 32px rgba(0,0,0,0.04)' }}
+          >
+            <div className="flex bg-surface-container-high rounded-2xl p-1 mb-7">
+              <button
+                onClick={() => {
+                  setIsLogin(true);
+                  setError('');
+                }}
+                className={`flex-1 py-2.5 rounded-xl font-body font-semibold text-sm transition-all duration-200 ${
+                  isLogin
+                    ? 'bg-surface-container-lowest text-on-surface shadow-sm'
+                    : 'text-on-surface-variant'
+                }`}
+              >
+                Entrar
+              </button>
+              <button
+                onClick={() => {
+                  setIsLogin(false);
+                  setError('');
+                }}
+                className={`flex-1 py-2.5 rounded-xl font-body font-semibold text-sm transition-all duration-200 ${
+                  !isLogin
+                    ? 'bg-surface-container-lowest text-on-surface shadow-sm'
+                    : 'text-on-surface-variant'
+                }`}
+              >
+                Cadastrar
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+              {!isLogin && (
+                <div>
+                  <label className="block font-body text-xs font-semibold text-on-surface-variant uppercase tracking-wider mb-2">
+                    Nome completo
+                  </label>
+                  <input
+                    type="text"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="Seu nome"
+                    required={!isLogin}
+                    className="w-full py-3.5 px-4 rounded-2xl bg-surface-container-high text-on-surface font-body text-sm placeholder:text-on-surface-variant/50 outline-none focus:ring-2 focus:ring-primary/20 transition-all border-none"
+                  />
+                </div>
+              )}
+
               <div>
                 <label className="block font-body text-xs font-semibold text-on-surface-variant uppercase tracking-wider mb-2">
-                  Nome completo
+                  Email
                 </label>
                 <input
-                  type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Seu nome"
-                  required={!isLogin}
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="seu@email.com"
+                  required
                   className="w-full py-3.5 px-4 rounded-2xl bg-surface-container-high text-on-surface font-body text-sm placeholder:text-on-surface-variant/50 outline-none focus:ring-2 focus:ring-primary/20 transition-all border-none"
                 />
               </div>
-            )}
 
-            <div>
-              <label className="block font-body text-xs font-semibold text-on-surface-variant uppercase tracking-wider mb-2">
-                Email
-              </label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="seu@email.com"
-                required
-                className="w-full py-3.5 px-4 rounded-2xl bg-surface-container-high text-on-surface font-body text-sm placeholder:text-on-surface-variant/50 outline-none focus:ring-2 focus:ring-primary/20 transition-all border-none"
-              />
-            </div>
-
-            <div>
-              <label className="block font-body text-xs font-semibold text-on-surface-variant uppercase tracking-wider mb-2">
-                Senha
-              </label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                required
-                minLength={6}
-                className="w-full py-3.5 px-4 rounded-2xl bg-surface-container-high text-on-surface font-body text-sm placeholder:text-on-surface-variant/50 outline-none focus:ring-2 focus:ring-primary/20 transition-all border-none"
-              />
-            </div>
-
-            {error && (
-              <div className="py-2.5 px-4 rounded-xl bg-red-50 text-error text-sm font-body font-medium flex items-center gap-2">
-                <span className="material-symbols-rounded text-[18px]">error</span>
-                {error}
+              <div>
+                <label className="block font-body text-xs font-semibold text-on-surface-variant uppercase tracking-wider mb-2">
+                  Senha
+                </label>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
+                  required
+                  minLength={6}
+                  className="w-full py-3.5 px-4 rounded-2xl bg-surface-container-high text-on-surface font-body text-sm placeholder:text-on-surface-variant/50 outline-none focus:ring-2 focus:ring-primary/20 transition-all border-none"
+                />
               </div>
-            )}
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full py-4 rounded-[20px] font-display font-bold text-base flex items-center justify-center gap-2 transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-60 disabled:hover:scale-100 mt-2"
-              style={{
-                background: '#ffd167',
-                color: '#765900',
-              }}
-            >
-              {loading ? (
-                <div className="flex gap-1.5">
-                  <div className="w-2 h-2 rounded-full bg-current loading-dot" />
-                  <div className="w-2 h-2 rounded-full bg-current loading-dot" />
-                  <div className="w-2 h-2 rounded-full bg-current loading-dot" />
+              {error && (
+                <div className="py-2.5 px-4 rounded-xl bg-red-50 text-error text-sm font-body font-medium flex items-center gap-2">
+                  <span className="material-symbols-rounded text-[18px]">error</span>
+                  {error}
                 </div>
-              ) : (
-                <>
-                  <span className="material-symbols-rounded filled text-[20px]">
-                    {isLogin ? 'login' : 'person_add'}
-                  </span>
-                  {isLogin ? 'Entrar' : 'Criar Conta'}
-                </>
               )}
-            </button>
-          </form>
 
-          <p className="text-center mt-5 font-body text-sm text-on-surface-variant">
-            {isLogin ? 'Não tem uma conta?' : 'Já tem uma conta?'}{' '}
-            <button
-              onClick={() => { setIsLogin(!isLogin); setError(''); }}
-              className="text-primary font-semibold hover:underline"
-            >
-              {isLogin ? 'Cadastre-se' : 'Entrar'}
-            </button>
-          </p>
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full py-4 rounded-[20px] font-display font-bold text-base flex items-center justify-center gap-2 transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-60 disabled:hover:scale-100 mt-2"
+                style={{
+                  background: '#ffd167',
+                  color: '#765900',
+                }}
+              >
+                {loading ? (
+                  <div className="flex gap-1.5">
+                    <div className="w-2 h-2 rounded-full bg-current loading-dot" />
+                    <div className="w-2 h-2 rounded-full bg-current loading-dot" />
+                    <div className="w-2 h-2 rounded-full bg-current loading-dot" />
+                  </div>
+                ) : (
+                  <>
+                    <span className="material-symbols-rounded filled text-[20px]">
+                      {isLogin ? 'login' : 'person_add'}
+                    </span>
+                    {isLogin ? 'Entrar' : 'Criar Conta'}
+                  </>
+                )}
+              </button>
+            </form>
+
+            <p className="text-center mt-5 font-body text-sm text-on-surface-variant">
+              {isLogin ? 'NÃ£o tem uma conta?' : 'JÃ¡ tem uma conta?'}{' '}
+              <button
+                onClick={() => {
+                  setIsLogin(!isLogin);
+                  setError('');
+                }}
+                className="text-primary font-semibold hover:underline"
+              >
+                {isLogin ? 'Cadastre-se' : 'Entrar'}
+              </button>
+            </p>
+          </div>
         </div>
       </div>
     </div>
