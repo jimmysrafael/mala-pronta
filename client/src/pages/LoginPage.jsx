@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiFetch } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
+import BackgroundVideo from '../components/BackgroundVideo';
 
 export default function LoginPage() {
   const [isLogin, setIsLogin] = useState(true);
@@ -10,31 +11,8 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [showVideoBackground, setShowVideoBackground] = useState(false);
   const { login } = useAuth();
   const navigate = useNavigate();
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-
-    const reduceMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
-    const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-
-    const updatePreference = () => {
-      const shouldReduceMotion = reduceMotionQuery.matches || connection?.saveData;
-      setShowVideoBackground(!shouldReduceMotion);
-    };
-
-    updatePreference();
-
-    reduceMotionQuery.addEventListener?.('change', updatePreference);
-    connection?.addEventListener?.('change', updatePreference);
-
-    return () => {
-      reduceMotionQuery.removeEventListener?.('change', updatePreference);
-      connection?.removeEventListener?.('change', updatePreference);
-    };
-  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -67,25 +45,7 @@ export default function LoginPage() {
 
   return (
     <div className="relative min-h-screen overflow-hidden px-5 py-6 sm:py-10">
-      <div className="pointer-events-none absolute inset-0 -z-20 bg-[radial-gradient(circle_at_top,rgba(177,240,206,0.45),transparent_36%),linear-gradient(180deg,#f8f9f9_0%,#f3f6f5_100%)]" />
-
-      {showVideoBackground && (
-        <div className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
-          <video
-            className="h-full w-full object-cover scale-[1.03] opacity-45"
-            autoPlay
-            muted
-            loop
-            playsInline
-            preload="metadata"
-            aria-hidden="true"
-            onError={() => setShowVideoBackground(false)}
-          >
-            <source src="/background-mala-pronta.mp4" type="video/mp4" />
-          </video>
-          <div className="absolute inset-0 bg-gradient-to-b from-[#f8f9f9]/55 via-[#f8f9f9]/78 to-[#f8f9f9]/96" />
-        </div>
-      )}
+      <BackgroundVideo />
 
       <button
         type="button"

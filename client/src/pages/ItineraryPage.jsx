@@ -3,9 +3,10 @@ import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/Toast';
 import Header from '../components/Header';
 import BottomNav from '../components/BottomNav';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { formatCurrency, formatDate } from '../utils/helpers';
 import { apiFetch } from '../lib/api';
+import BackgroundVideo from '../components/BackgroundVideo';
 
 export default function ItineraryPage() {
   const location = useLocation();
@@ -15,7 +16,6 @@ export default function ItineraryPage() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [showBRL, setShowBRL] = useState(true);
-  const [showBannerVideo, setShowBannerVideo] = useState(false);
 
   const { itinerary, destination, days, budget, startDate, returnDate, isNew } = location.state || {};
   const itineraryBudget = Number(
@@ -25,28 +25,6 @@ export default function ItineraryPage() {
   const isBudgetAdjusted = itineraryBudget > 0 && originalBudget > 0 && itineraryBudget !== originalBudget;
   const tripStartDate = itinerary?.startDate || startDate || '';
   const tripReturnDate = itinerary?.returnDate || returnDate || '';
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-
-    const reduceMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
-    const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-
-    const updatePreference = () => {
-      const shouldReduceMotion = reduceMotionQuery.matches || connection?.saveData;
-      setShowBannerVideo(!shouldReduceMotion);
-    };
-
-    updatePreference();
-
-    reduceMotionQuery.addEventListener?.('change', updatePreference);
-    connection?.addEventListener?.('change', updatePreference);
-
-    return () => {
-      reduceMotionQuery.removeEventListener?.('change', updatePreference);
-      connection?.removeEventListener?.('change', updatePreference);
-    };
-  }, []);
 
   if (!itinerary) {
     return (
@@ -104,25 +82,7 @@ export default function ItineraryPage() {
           className="relative isolate w-full overflow-hidden"
           style={{ height: '400px' }}
         >
-          {showBannerVideo && (
-            <div className="pointer-events-none absolute inset-0 overflow-hidden">
-              <video
-                className="h-full w-full object-cover scale-[1.04] opacity-70"
-                autoPlay
-                muted
-                loop
-                playsInline
-                preload="metadata"
-                aria-hidden="true"
-                onError={() => setShowBannerVideo(false)}
-              >
-                <source src="/background-mala-pronta.mp4" type="video/mp4" />
-              </video>
-              <div className="absolute inset-0 bg-gradient-to-b from-white/25 via-white/10 to-[#f8f9f9]" />
-              <div className="absolute inset-0 bg-gradient-to-t from-[#f8f9f9] via-transparent to-transparent" />
-              <div className="absolute inset-0 bg-gradient-to-r from-white/15 via-transparent to-transparent" />
-            </div>
-          )}
+          <BackgroundVideo variant="banner" />
           {/* Big subtle icon */}
           <div className="absolute inset-x-0 top-0 flex h-[180px] items-center justify-center">
             <span className="material-symbols-rounded text-white opacity-[0.12]" style={{ fontSize: '120px' }}>
