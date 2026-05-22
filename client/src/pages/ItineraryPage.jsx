@@ -3,20 +3,9 @@ import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/Toast';
 import Header from '../components/Header';
 import BottomNav from '../components/BottomNav';
-import { useState } from 'react';
-import { hashStr, formatCurrency, formatDate } from '../utils/helpers';
+import { useEffect, useState } from 'react';
+import { formatCurrency, formatDate } from '../utils/helpers';
 import { apiFetch } from '../lib/api';
-
-const BANNER_GRADIENTS = [
-  'linear-gradient(135deg, #0f5238 0%, #1a7a54 50%, #2d6a4f 100%)',
-  'linear-gradient(135deg, #1e3a5f 0%, #2563eb 50%, #1d4ed8 100%)',
-  'linear-gradient(135deg, #5b2c6f 0%, #7c3aed 50%, #6d28d9 100%)',
-  'linear-gradient(135deg, #7c2d12 0%, #ea580c 50%, #c2410c 100%)',
-  'linear-gradient(135deg, #155e75 0%, #0891b2 50%, #0e7490 100%)',
-  'linear-gradient(135deg, #831843 0%, #db2777 50%, #be185d 100%)',
-];
-
-
 
 export default function ItineraryPage() {
   const location = useLocation();
@@ -26,6 +15,7 @@ export default function ItineraryPage() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [showBRL, setShowBRL] = useState(true);
+  const [showBannerVideo, setShowBannerVideo] = useState(false);
 
   const { itinerary, destination, days, budget, startDate, returnDate, isNew } = location.state || {};
   const itineraryBudget = Number(
@@ -36,6 +26,28 @@ export default function ItineraryPage() {
   const tripStartDate = itinerary?.startDate || startDate || '';
   const tripReturnDate = itinerary?.returnDate || returnDate || '';
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const reduceMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+
+    const updatePreference = () => {
+      const shouldReduceMotion = reduceMotionQuery.matches || connection?.saveData;
+      setShowBannerVideo(!shouldReduceMotion);
+    };
+
+    updatePreference();
+
+    reduceMotionQuery.addEventListener?.('change', updatePreference);
+    connection?.addEventListener?.('change', updatePreference);
+
+    return () => {
+      reduceMotionQuery.removeEventListener?.('change', updatePreference);
+      connection?.removeEventListener?.('change', updatePreference);
+    };
+  }, []);
+
   if (!itinerary) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -43,9 +55,6 @@ export default function ItineraryPage() {
       </div>
     );
   }
-
-  const gradientIndex = hashStr(itinerary.destination || destination || '') % BANNER_GRADIENTS.length;
-  const bannerGradient = BANNER_GRADIENTS[gradientIndex];
 
   const handleSave = async () => {
     if (saved || saving) return;
@@ -92,37 +101,37 @@ export default function ItineraryPage() {
       <main className="pb-28">
         {/* Banner */}
         <div
-          className="relative w-full overflow-hidden"
+          className="relative isolate w-full overflow-hidden"
           style={{ height: '400px' }}
         >
-          <div className="absolute inset-0" style={{ background: bannerGradient }} />
-          {/* Decorative wave pattern */}
-          <svg
-            className="absolute bottom-0 left-0 right-0 opacity-[0.08]"
-            viewBox="0 0 1440 320"
-            preserveAspectRatio="none"
-            style={{ height: '120px', width: '100%' }}
-          >
-            <path
-              fill="white"
-              d="M0,224L48,208C96,192,192,160,288,170.7C384,181,480,235,576,245.3C672,256,768,224,864,192C960,160,1056,128,1152,122.7C1248,117,1344,139,1392,149.3L1440,160L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z"
-            />
-          </svg>
+          {showBannerVideo && (
+            <div className="pointer-events-none absolute inset-0 overflow-hidden">
+              <video
+                className="h-full w-full object-cover scale-[1.04] opacity-70"
+                autoPlay
+                muted
+                loop
+                playsInline
+                preload="metadata"
+                aria-hidden="true"
+                onError={() => setShowBannerVideo(false)}
+              >
+                <source src="/background-mala-pronta.mp4" type="video/mp4" />
+              </video>
+              <div className="absolute inset-0 bg-gradient-to-b from-white/25 via-white/10 to-[#f8f9f9]" />
+              <div className="absolute inset-0 bg-gradient-to-t from-[#f8f9f9] via-transparent to-transparent" />
+              <div className="absolute inset-0 bg-gradient-to-r from-white/15 via-transparent to-transparent" />
+            </div>
+          )}
           {/* Big subtle icon */}
-          <div className="absolute inset-0 flex items-center justify-center">
+          <div className="absolute inset-x-0 top-0 flex h-[180px] items-center justify-center">
             <span className="material-symbols-rounded text-white opacity-[0.12]" style={{ fontSize: '120px' }}>
               travel_explore
             </span>
           </div>
-          {/* Overlay gradient */}
-          <div
-            className="absolute inset-0"
-            style={{
-              background: 'linear-gradient(to top, #f8f9f9 0%, transparent 40%, rgba(0,0,0,0.15) 100%)',
-            }}
-          />
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[200px] bg-gradient-to-t from-[#f8f9f9] via-[#f8f9f9]/88 to-transparent" />
           {/* Text overlay */}
-          <div className="absolute bottom-8 left-5 right-5 max-w-[672px] mx-auto">
+          <div className="absolute bottom-8 left-5 right-5 z-10 max-w-[672px] mx-auto">
             <h1 className="font-display font-extrabold text-[36px] leading-tight text-white drop-shadow-lg">
               {itinerary.destination || destination}
             </h1>
