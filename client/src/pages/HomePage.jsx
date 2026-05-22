@@ -19,6 +19,8 @@ export default function HomePage() {
   const [endDate, setEndDate] = useState('');
   const [loading, setLoading] = useState(false);
   const [showVideoBackground, setShowVideoBackground] = useState(false);
+  const [budgetDecisionPrompt, setBudgetDecisionPrompt] = useState(null);
+  const [budgetDecisionLoading, setBudgetDecisionLoading] = useState(false);
   const { token, user } = useAuth();
   const navigate = useNavigate();
   const toast = useToast();
@@ -45,6 +47,62 @@ export default function HomePage() {
     };
   }, []);
 
+  const getGeneratePayload = () => {
+    let finalDays = days;
+    let finalDate = null;
+    let finalReturnDate = '';
+
+    if (mode === 'period') {
+      if (!startDate || !endDate) {
+        return { error: 'Selecione as datas de início e fim' };
+      }
+
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      const diffTime = Math.abs(end - start);
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+
+      if (diffDays <= 0 || diffDays > 30) {
+        return { error: 'O período deve ser entre 1 e 30 dias' };
+      }
+
+      finalDays = diffDays;
+      finalDate = startDate;
+      finalReturnDate = endDate;
+    } else {
+      const d = new Date();
+      d.setDate(d.getDate() + 30);
+      finalDate = d.toISOString().split('T')[0];
+    }
+
+    return {
+      payload: {
+        origin: originAirport,
+        destination: destAirport,
+        days: finalDays,
+        budget,
+        startDate: finalDate,
+        returnDate: finalReturnDate,
+      },
+      finalDays,
+    };
+  };
+
+  const submitGenerateRequest = async (requestBody) => {
+    const res = await apiFetch('/api/trips/generate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(requestBody),
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erro ao gerar roteiro');
+    return data;
+  };
+
   const handleGenerate = async () => {
     if (!destAirport) {
       toast('Selecione o aeroporto de destino', 'error');
@@ -55,63 +113,72 @@ export default function HomePage() {
       return;
     }
 
-    let finalDays = days;
-    let finalDate = null;
-
-    if (mode === 'period') {
-      if (!startDate || !endDate) {
-        toast('Selecione as datas de início e fim', 'error');
-        return;
-      }
-      const start = new Date(startDate);
-      const end = new Date(endDate);
-      const diffTime = Math.abs(end - start);
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
-
-      if (diffDays <= 0 || diffDays > 30) {
-        toast('O período deve ser entre 1 e 30 dias', 'error');
-        return;
-      }
-      finalDays = diffDays;
-      finalDate = startDate;
-    } else {
-      const d = new Date();
-      d.setDate(d.getDate() + 30);
-      finalDate = d.toISOString().split('T')[0];
+    const generateData = getGeneratePayload();
+    if (generateData.error) {
+      toast(generateData.error, 'error');
+      return;
     }
 
     setLoading(true);
     try {
-      const res = await apiFetch('/api/trips/generate', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({
-          origin: originAirport,
-          destination: destAirport,
-          days: finalDays,
-          budget,
-          startDate: finalDate,
-        }),
-      });
+      const data = await submitGenerateRequest(generateData.payload);
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Erro ao gerar roteiro');
+      if (data?.needsBudgetDecision) {
+        setBudgetDecisionPrompt({
+          previewToken: data.previewToken,
+          budgetUsage: data.budgetUsage,
+          decisionOptions: data.decisionOptions || [],
+          preview: data.preview || null,
+          message: data.message || 'O orçamento está apertado. Escolha como deseja continuar.',
+          requestBody: generateData.payload,
+          finalDays: generateData.finalDays,
+        });
+        return;
+      }
 
       navigate('/itinerary', {
         state: {
           itinerary: data,
           destination: destAirport.cityName,
-          days: finalDays,
-          budget,
+          days: generateData.finalDays,
+          budget: data.totalBudget || data.budgetBreakdown?.total || budget,
           isNew: true,
         },
       });
     } catch (err) {
       toast(err.message, 'error');
     } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleBudgetDecision = async (modeChoice) => {
+    if (!budgetDecisionPrompt) return;
+
+    setBudgetDecisionLoading(true);
+    setLoading(true);
+
+    try {
+      const data = await submitGenerateRequest({
+        ...budgetDecisionPrompt.requestBody,
+        budgetDecision: modeChoice,
+        previewToken: budgetDecisionPrompt.previewToken,
+      });
+
+      setBudgetDecisionPrompt(null);
+      navigate('/itinerary', {
+        state: {
+          itinerary: data,
+          destination: destAirport.cityName,
+          days: budgetDecisionPrompt.finalDays,
+          budget: data.totalBudget || data.budgetBreakdown?.total || budget,
+          isNew: true,
+        },
+      });
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      setBudgetDecisionLoading(false);
       setLoading(false);
     }
   };
@@ -226,7 +293,7 @@ export default function HomePage() {
                     placeholder="8+"
                     className="w-16 h-12 flex-shrink-0 rounded-2xl text-center font-display font-bold text-sm bg-surface-container-high text-on-surface outline-none focus:ring-2 focus:ring-primary/20"
                     onChange={(e) => {
-                      const val = parseInt(e.target.value);
+                      const val = parseInt(e.target.value, 10);
                       if (val >= 8 && val <= 30) setDays(val);
                     }}
                   />
@@ -304,6 +371,119 @@ export default function HomePage() {
           </section>
         </div>
       </main>
+
+      {budgetDecisionPrompt && (
+        <div className="fixed inset-0 z-[210] flex items-end justify-center bg-black/40 backdrop-blur-sm px-4 py-6 sm:items-center">
+          <div className="w-full max-w-[560px] rounded-[28px] bg-white p-6 shadow-[0_24px_80px_rgba(0,0,0,0.18)] animate-fade-in-up">
+            <div className="mb-4 flex items-start justify-between gap-4">
+              <div>
+                <p className="mb-2 font-display text-xl font-bold text-on-surface">
+                  O orçamento ficou apertado
+                </p>
+                <p className="font-body text-sm leading-relaxed text-on-surface-variant">
+                  {budgetDecisionPrompt.message}
+                </p>
+              </div>
+              <button
+                onClick={() => setBudgetDecisionPrompt(null)}
+                className="flex h-10 w-10 items-center justify-center rounded-full bg-surface-container-high text-on-surface-variant"
+                aria-label="Fechar"
+                disabled={budgetDecisionLoading}
+              >
+                <span className="material-symbols-rounded text-[20px]">close</span>
+              </button>
+            </div>
+
+            {budgetDecisionLoading && (
+              <div className="mb-5 rounded-2xl bg-[#f3f6f5] p-4 flex items-center gap-3">
+                <div className="h-10 w-10 rounded-full bg-white flex items-center justify-center shadow-sm">
+                  <span className="material-symbols-rounded text-primary text-[22px] animate-spin">progress_activity</span>
+                </div>
+                <div>
+                  <p className="font-display font-bold text-sm text-on-surface">
+                    Processando sua escolha
+                  </p>
+                  <p className="font-body text-xs text-on-surface-variant">
+                    Estamos montando a viagem com a opcao selecionada. Isso pode levar alguns segundos.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {budgetDecisionPrompt.budgetUsage && (
+              <div className="mb-5 grid grid-cols-3 gap-3">
+                <div className="rounded-2xl bg-surface-container-low p-3">
+                  <p className="mb-1 text-[10px] uppercase tracking-wider text-on-surface-variant">Passagem</p>
+                  <p className="font-display text-sm font-bold text-on-surface">
+                    {formatCurrency(budgetDecisionPrompt.budgetUsage.flightCost || 0)}
+                  </p>
+                </div>
+                <div className="rounded-2xl bg-surface-container-low p-3">
+                  <p className="mb-1 text-[10px] uppercase tracking-wider text-on-surface-variant">Hotel</p>
+                  <p className="font-display text-sm font-bold text-on-surface">
+                    {formatCurrency(budgetDecisionPrompt.budgetUsage.hotelCost || 0)}
+                  </p>
+                </div>
+                <div className="rounded-2xl bg-surface-container-low p-3">
+                  <p className="mb-1 text-[10px] uppercase tracking-wider text-on-surface-variant">Orçamento usado</p>
+                  <p className="font-display text-sm font-bold text-on-surface">
+                    {budgetDecisionPrompt.budgetUsage.usagePercent || 0}%
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {budgetDecisionPrompt.preview?.warnings?.length > 0 && (
+              <div className="mb-5 rounded-2xl bg-[#fff7e6] p-4">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-[#765900]">
+                  Avisos
+                </p>
+                <ul className="space-y-2">
+                  {budgetDecisionPrompt.preview.warnings.slice(0, 3).map((warning) => (
+                    <li key={warning} className="font-body text-sm leading-relaxed text-[#5f4900]">
+                      {warning}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <button
+                onClick={() => handleBudgetDecision('adapt_without_api')}
+                disabled={budgetDecisionLoading}
+                className="rounded-2xl border border-surface-container-high px-4 py-4 text-left transition-all duration-200 hover:-translate-y-0.5 disabled:opacity-60"
+              >
+                <p className="mb-1 font-display text-sm font-bold text-on-surface">
+                  {budgetDecisionLoading ? 'Processando...' : 'Adaptar sem valores reais'}
+                </p>
+                <p className="font-body text-xs leading-relaxed text-on-surface-variant">
+                  {budgetDecisionLoading
+                    ? 'Aguarde a montagem do roteiro.'
+                    : 'Mantem a experiencia rapida e monta o roteiro usando estimativas para caber no orcamento.'}
+                </p>
+              </button>
+
+              <button
+                onClick={() => handleBudgetDecision('use_real_values')}
+                disabled={budgetDecisionLoading}
+                className="rounded-2xl px-4 py-4 text-left transition-all duration-200 hover:-translate-y-0.5 disabled:opacity-60"
+                style={{ background: '#0f5238', color: '#ffffff' }}
+              >
+                <p className="mb-1 font-display text-sm font-bold">
+                  {budgetDecisionLoading ? 'Processando...' : 'Usar valores reais encontrados'}
+                </p>
+                <p className="font-body text-xs leading-relaxed text-white/85">
+                  {budgetDecisionLoading
+                    ? 'Aguarde a montagem do roteiro.'
+                    : 'Reaproveita os valores reais ja encontrados e ajusta o roteiro com base neles.'}
+                </p>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {user && <BottomNav />}
     </>
   );

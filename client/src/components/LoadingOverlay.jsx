@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 
 const messages = [
+  'Avaliando a viabilidade do orçamento...',
   'Buscando voos disponíveis...',
   'Consultando hotéis na região...',
   'Descobrindo atrações locais...',

@@ -88,7 +88,7 @@ function normalizeCityLabel(value) {
   return String(value || '')
     .split(',')[0]
     .replace(/\s*\([^)]+\)\s*$/g, '')
-    .replace(/\s*-\s*[A-Za-zÀ-ÿ'’. ]+$/g, '')
+    .replace(/\s*-\s*[A-Za-zÀ-ÿ'’\. ]+$/g, '')
     .trim();
 }
 
@@ -97,10 +97,10 @@ function getHotelApiErrorReason(err) {
   const message = err.response?.data?.message || err.message;
 
   if (status === 429 && /quota|limit|too many/i.test(message)) {
-    return 'Cota da API Booking.com/RapidAPI excedida. Não foi possível consultar hotéis reais com a chave atual.';
+    return 'Sistema de hoteis indisponivel por tempo indeterminado. Usaremos estimativas sem consulta em tempo real.';
   }
 
-  return 'Não foi possível consultar hotéis em tempo real. Usamos uma estimativa com base no orçamento.';
+  return 'Nao foi possivel consultar hoteis em tempo real. Usamos uma estimativa com base no orcamento.';
 }
 
 function mapHotelResult(hotel, index, days, arrivalDate, departureDate) {
@@ -158,7 +158,7 @@ async function searchHotels({ destination, days, budget, startDate }) {
       : await searchDestination(city);
 
     if (!dest) {
-      return { available: false, reason: 'Destino não encontrado no Booking', data: [] };
+      return { available: false, reason: 'Destino nao encontrado no Booking', data: [] };
     }
 
     const budgetPerNight = (budget * 0.35) / days;
@@ -193,7 +193,7 @@ async function searchHotels({ destination, days, budget, startDate }) {
     const hotels = (hotelsWithinBudget.length > 0 ? hotelsWithinBudget : hotelsWithPrice).slice(0, 3);
 
     if (hotels.length > 0 && hotelsWithinBudget.length === 0) {
-      logger.warn('[HOTEL SEARCH] Hotéis reais encontrados, mas acima da fatia de orçamento. Usando os mais baratos retornados pela API.');
+      logger.warn('[HOTEL SEARCH] Real hotels found, but above budget slice. Using the cheapest returned by the API.');
     }
 
     if (hotels.length > 0) {
@@ -214,15 +214,22 @@ async function searchHotels({ destination, days, budget, startDate }) {
 
     return { available: hotels.length > 0, data: hotels };
   } catch (err) {
+    const status = err.response?.status || null;
+    const message = err.response?.data?.message || err.message;
+    const isQuotaLimit = status === 429 && /quota|limit|too many/i.test(message);
     const reason = getHotelApiErrorReason(err);
-    logger.error(`[HOTEL SEARCH ERROR] ${city}: ${reason}`, err);
+    const internalReason = isQuotaLimit
+      ? 'Cota da API Booking.com/RapidAPI excedida.'
+      : reason;
+
+    logger.error(`[HOTEL SEARCH ERROR] ${city}: ${internalReason}`, err);
     logApiUsage({
       service_name: 'hotel_search',
       provider: 'Booking.com',
       endpoint: '/searchHotels',
       success: 0,
-      status_code: err.response?.status || null,
-      error_message: err.response?.data?.message || err.message,
+      status_code: status,
+      error_message: message,
       request_key: cacheKey,
     });
     return { available: false, reason, data: [] };

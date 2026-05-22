@@ -28,6 +28,11 @@ export default function ItineraryPage() {
   const [showBRL, setShowBRL] = useState(true);
 
   const { itinerary, destination, days, budget, isNew } = location.state || {};
+  const itineraryBudget = Number(
+    itinerary?.budgetBreakdown?.total ?? itinerary?.totalBudget ?? budget ?? 0
+  );
+  const originalBudget = Number(budget ?? 0);
+  const isBudgetAdjusted = itineraryBudget > 0 && originalBudget > 0 && itineraryBudget !== originalBudget;
 
   if (!itinerary) {
     return (
@@ -53,7 +58,7 @@ export default function ItineraryPage() {
         body: JSON.stringify({
           destination: itinerary.destination || destination,
           days: itinerary.totalDays || days,
-          budget: itinerary.totalBudget || budget,
+          budget: itineraryBudget || itinerary.totalBudget || budget,
           itinerary,
         }),
       });
@@ -141,7 +146,7 @@ export default function ItineraryPage() {
               <span className="material-symbols-rounded text-on-surface-variant text-[24px]">payments</span>
               <span className="font-body text-[10px] font-semibold text-on-surface-variant uppercase tracking-wider">Orçamento</span>
               <span className="font-display font-bold text-base text-on-surface">
-                {formatCurrency(itinerary.totalBudget || budget)}
+                {formatCurrency(itineraryBudget)}
               </span>
             </div>
             <div className="flex flex-col items-center gap-1.5">
@@ -225,6 +230,13 @@ export default function ItineraryPage() {
                 <span className="material-symbols-rounded filled text-primary text-[20px]">account_balance_wallet</span>
                 <span className="font-display font-bold text-base text-on-surface">Distribuição do Orçamento</span>
               </div>
+              {isBudgetAdjusted && (
+                <div className="mb-4 rounded-2xl bg-emerald-50 px-4 py-3">
+                  <p className="font-body text-xs text-emerald-900">
+                    Orçamento adaptado com base nos valores reais encontrados. O roteiro passou a considerar {formatCurrency(itineraryBudget)}.
+                  </p>
+                </div>
+              )}
               {[
                 { label: 'Passagem', key: 'flight', icon: 'flight' },
                 { label: 'Hospedagem', key: 'hotel', icon: 'hotel' },
@@ -244,7 +256,7 @@ export default function ItineraryPage() {
               <div className="border-t border-surface-container-high mt-2 pt-3 flex justify-between">
                 <span className="font-display font-bold text-sm text-on-surface">Total</span>
                 <span className="font-display font-bold text-sm text-primary">
-                  {formatCurrency(itinerary.budgetBreakdown.total || 0)}
+                  {formatCurrency(itineraryBudget)}
                 </span>
               </div>
             </div>

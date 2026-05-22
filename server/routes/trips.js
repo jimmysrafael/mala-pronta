@@ -42,6 +42,9 @@ const generateLimiter = rateLimit({
 });
 
 const inFlightRequests = new Map();
+const budgetDecisionPreviews = new Map();
+const BUDGET_DECISION_THRESHOLD = 0.6;
+const BUDGET_PREVIEW_TTL_MS = 10 * 60 * 1000;
 
 function isValidTravelLocation(value) {
   if (typeof value === 'string') {
@@ -63,6 +66,79 @@ function isValidIsoDate(value) {
   if (!value) return true;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value))) return false;
   return !Number.isNaN(new Date(`${value}T00:00:00Z`).getTime());
+}
+
+function createBudgetPreviewToken() {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function cleanupBudgetPreviewStore() {
+  const now = Date.now();
+  for (const [token, item] of budgetDecisionPreviews.entries()) {
+    if (!item || item.expiresAt <= now) {
+      budgetDecisionPreviews.delete(token);
+    }
+  }
+}
+
+function storeBudgetPreview(token, payload) {
+  cleanupBudgetPreviewStore();
+  budgetDecisionPreviews.set(token, {
+    ...payload,
+    expiresAt: Date.now() + BUDGET_PREVIEW_TTL_MS,
+  });
+}
+
+function readBudgetPreview(token) {
+  cleanupBudgetPreviewStore();
+  const preview = budgetDecisionPreviews.get(token);
+  if (!preview) return null;
+
+  if (preview.expiresAt <= Date.now()) {
+    budgetDecisionPreviews.delete(token);
+    return null;
+  }
+
+  return preview;
+}
+
+function getTripBudgetUsage(flightResults, hotels, budget) {
+  const flightCost = flightResults?.available && flightResults.data?.length > 0
+    ? Number(flightResults.data[0]?.priceBRL || 0)
+    : 0;
+  const hotelCost = hotels?.available && hotels.data?.length > 0
+    ? Number(hotels.data[0]?.totalPrice || 0)
+    : 0;
+  const total = flightCost + hotelCost;
+
+  return {
+    flightCost,
+    hotelCost,
+    total,
+    usage: budget > 0 ? total / budget : 0,
+    requiresDecision: total > 0 && budget > 0 && total / budget > BUDGET_DECISION_THRESHOLD,
+  };
+}
+
+function uniqStrings(values = []) {
+  return [...new Set(values.filter((value) => typeof value === 'string' && value.trim()))];
+}
+
+function normalizeItineraryFromPlan(itinerary, tripPlan) {
+  const dayCount = tripPlan.days || itinerary.totalDays || 0;
+  const activitiesCount = tripPlan.daysFramework?.reduce((sum, day) => sum + (day.suggestedAttractions?.length || 0), 0) || 0;
+
+  return {
+    ...itinerary,
+    destination: itinerary.destination || tripPlan.destination,
+    totalDays: dayCount,
+    totalBudget: tripPlan.budgetBreakdown?.total || itinerary.totalBudget || tripPlan.budget,
+    totalActivities: itinerary.totalActivities || activitiesCount,
+    budgetBreakdown: tripPlan.budgetBreakdown || itinerary.budgetBreakdown,
+    flightSummary: tripPlan.flightSummary || itinerary.flightSummary,
+    hotelSummary: tripPlan.hotelSummary || itinerary.hotelSummary,
+    warnings: uniqStrings([...(tripPlan.warnings || []), ...(itinerary.warnings || [])]),
+  };
 }
 
 function validateGeneratePayload(body = {}) {
@@ -110,17 +186,29 @@ function validateGeneratePayload(body = {}) {
 
 // POST /api/trips/generate - Acesso Livre (Optional Auth)
 router.post('/generate', optionalAuth, generateLimiter, async (req, res) => {
-
   try {
     const validation = validateGeneratePayload(req.body);
     if (validation.error) {
       return res.status(400).json({ error: validation.error });
     }
 
-    const { origin, destination, days, budget, travelers, startDate, date, returnDate, interests } = validation.value;
+    const {
+      origin,
+      destination,
+      days,
+      budget,
+      travelers,
+      startDate,
+      date,
+      returnDate,
+      interests,
+    } = validation.value;
+
+    const budgetDecision = String(req.body.budgetDecision || '').trim();
+    const previewToken = String(req.body.previewToken || '').trim();
 
     if (!destination || !days || !budget) {
-      return res.status(400).json({ error: 'Destino, dias e orçamento são obrigatórios' });
+      return res.status(400).json({ error: 'Destino, dias e orcamento sao obrigatorios' });
     }
 
     const originName = typeof origin === 'object' ? (origin.cityName || origin.airportName || '') : origin;
@@ -137,19 +225,25 @@ router.post('/generate', optionalAuth, generateLimiter, async (req, res) => {
 
     const originCity = normalizeTravelCityLabel(canonicalOrigin?.cityName || originName);
     const destinationCity = normalizeTravelCityLabel(canonicalDestination?.cityName || destinationName);
-
     const departureDate = date || startDate || '';
     const tripReturnDate = returnDate || '';
-    const cacheKey = `trip-live-v2-${originCity}-${destinationCity}-${days}-${budget}-${travelers}-${departureDate}-${tripReturnDate}-${interests}`
-      .toLowerCase().replace(/\s+/g, '_');
 
-    if (inFlightRequests.has(cacheKey)) {
-      logger.info('[TRACKING] Requisição idêntica em andamento. Aguardando...');
-      const result = await inFlightRequests.get(cacheKey);
+    const baseCacheKey = `trip-live-v2-${originCity}-${destinationCity}-${days}-${budget}-${travelers}-${departureDate}-${tripReturnDate}-${interests}`
+      .toLowerCase()
+      .replace(/\s+/g, '_');
+
+    const inFlightKey = budgetDecision
+      ? `${baseCacheKey}-${budgetDecision}`
+      : `${baseCacheKey}-preview`;
+
+    if (inFlightRequests.has(inFlightKey)) {
+      logger.info('[TRACKING] Requisicao identica em andamento. Aguardando...');
+      const result = await inFlightRequests.get(inFlightKey);
       return res.json(result);
     }
 
     const processTrip = async () => {
+      const cacheKey = budgetDecision ? `${baseCacheKey}-${budgetDecision}` : baseCacheKey;
       const cached = await db.one('SELECT resultado_json, created_at FROM trip_cache WHERE cache_key = ?', [cacheKey]);
       if (cached) {
         const ageHours = (new Date() - new Date(cached.created_at)) / (1000 * 60 * 60);
@@ -167,6 +261,59 @@ router.post('/generate', optionalAuth, generateLimiter, async (req, res) => {
       }
 
       logger.info('[CACHE MISS] tipo=trip_cache');
+
+      if (budgetDecision) {
+        if (budgetDecision !== 'adapt_without_api' && budgetDecision !== 'use_real_values') {
+          return { error: 'Modo de planejamento invalido' };
+        }
+
+        let tripPlan;
+        if (budgetDecision === 'use_real_values') {
+          if (!previewToken) {
+            return { error: 'Token de planejamento ausente' };
+          }
+
+          const preview = readBudgetPreview(previewToken);
+          if (!preview) {
+            return { error: 'Avaliacao de orcamento expirada. Gere o roteiro novamente.' };
+          }
+
+          tripPlan = buildFeasiblePlan({
+            destination: preview.destination,
+            days: preview.days,
+            budget: preview.budget,
+            flights: preview.flightResults,
+            hotels: preview.hotels,
+            attractions: preview.attractions,
+            weather: preview.weather,
+            budgetMode: 'real_values',
+          });
+        } else {
+          tripPlan = buildFeasiblePlan({
+            destination,
+            days,
+            budget,
+            flights: { available: false, data: [], reason: 'Modo sem valores reais selecionado pelo usuario.' },
+            hotels: { available: false, data: [], reason: 'Modo sem valores reais selecionado pelo usuario.' },
+            attractions: { available: false, data: [] },
+            weather: { data: null },
+            budgetMode: 'estimate',
+          });
+        }
+
+        const itinerary = normalizeItineraryFromPlan(
+          await generateAIItinerary(tripPlan),
+          tripPlan
+        );
+
+        await db.run(
+          'INSERT INTO trip_cache (cache_key, resultado_json, created_at) VALUES (?, ?, NOW()) ON CONFLICT (cache_key) DO UPDATE SET resultado_json = EXCLUDED.resultado_json, created_at = NOW()',
+          [cacheKey, JSON.stringify(itinerary)]
+        );
+
+        return itinerary;
+      }
+
       logger.info('[TRIP] Iniciando busca de dados...');
       let flightResults = await searchFlights({ origin, destination, days, travelers, startDate, date, returnDate });
 
@@ -213,30 +360,86 @@ router.post('/generate', optionalAuth, generateLimiter, async (req, res) => {
         hotels,
         attractions,
         weather,
+        budgetMode: 'estimate',
       });
-      const itinerary = await generateAIItinerary(tripPlan);
+
+      const budgetUsage = getTripBudgetUsage(flightResults, hotels, budget);
+      if (budgetUsage.requiresDecision) {
+        const previewTokenValue = createBudgetPreviewToken();
+        storeBudgetPreview(previewTokenValue, {
+          destination,
+          days,
+          budget,
+          flightResults,
+          hotels,
+          attractions,
+          weather,
+        });
+
+        return {
+          needsBudgetDecision: true,
+          previewToken: previewTokenValue,
+          budgetUsage: {
+            thresholdPercent: Math.round(BUDGET_DECISION_THRESHOLD * 100),
+            usagePercent: Math.round(budgetUsage.usage * 100),
+            flightCost: budgetUsage.flightCost,
+            hotelCost: budgetUsage.hotelCost,
+            total: budgetUsage.total,
+            budget,
+          },
+          decisionOptions: [
+            {
+              id: 'adapt_without_api',
+              label: 'Adaptar sem valores reais',
+              description: 'Usa estimativas e evita novas consultas de passagem e hotel.',
+            },
+            {
+              id: 'use_real_values',
+              label: 'Usar valores reais encontrados',
+              description: 'Mantem os valores encontrados agora e ajusta o roteiro com base neles.',
+            },
+          ],
+          preview: {
+            destination,
+            days,
+            budget,
+            chosenFlight: tripPlan.chosenFlight,
+            chosenHotel: tripPlan.chosenHotel,
+            warnings: tripPlan.warnings,
+          },
+          message: 'Passagem e hospedagem ultrapassaram o limite de seguranca do orcamento. Escolha como deseja continuar.',
+        };
+      }
+
+      const itinerary = normalizeItineraryFromPlan(
+        await generateAIItinerary(tripPlan),
+        tripPlan
+      );
 
       await db.run(
         'INSERT INTO trip_cache (cache_key, resultado_json, created_at) VALUES (?, ?, NOW()) ON CONFLICT (cache_key) DO UPDATE SET resultado_json = EXCLUDED.resultado_json, created_at = NOW()',
-        [cacheKey, JSON.stringify(itinerary)]
+        [baseCacheKey, JSON.stringify(itinerary)]
       );
 
       return itinerary;
     };
 
     const tripPromise = processTrip();
-    inFlightRequests.set(cacheKey, tripPromise);
+    inFlightRequests.set(inFlightKey, tripPromise);
 
     try {
       const result = await tripPromise;
+      if (result?.error) {
+        return res.status(400).json({ error: result.error });
+      }
       res.json(result);
     } finally {
-      inFlightRequests.delete(cacheKey);
+      inFlightRequests.delete(inFlightKey);
     }
   } catch (err) {
     logger.error('Generate error:', err);
     if (err.status === 401 || err.code === 'invalid_api_key') {
-      return res.status(500).json({ error: 'Chave da API OpenAI inválida.' });
+      return res.status(500).json({ error: 'Chave da API OpenAI invalida.' });
     }
     res.status(500).json({ error: 'Erro ao gerar o roteiro. Tente novamente.' });
   }
@@ -248,7 +451,7 @@ router.post('/save', authMiddleware, async (req, res) => {
     const { destination, days, budget, itinerary } = req.body;
 
     if (!destination || !days || !budget || !itinerary) {
-      return res.status(400).json({ error: 'Todos os campos são obrigatórios' });
+      return res.status(400).json({ error: 'Todos os campos sao obrigatorios' });
     }
 
     const saved = await db.one(
@@ -287,7 +490,7 @@ router.delete('/:id', authMiddleware, async (req, res) => {
     );
 
     if (!trip) {
-      return res.status(404).json({ error: 'Viagem não encontrada' });
+      return res.status(404).json({ error: 'Viagem nao encontrada' });
     }
 
     await db.run('DELETE FROM trips WHERE id = ?', [req.params.id]);
