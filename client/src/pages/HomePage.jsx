@@ -210,10 +210,10 @@ export default function HomePage() {
         <div className="relative z-10 mx-auto max-w-[672px] px-5">
           <section className="mt-6 mb-8 animate-fade-in-up">
             <h1 className="font-display font-extrabold text-[28px] leading-tight text-on-surface mb-2">
-              Planeje sua viagem perfeita com IA
+              Planeje sua próxima viagem com mais praticidade
             </h1>
             <p className="font-body text-sm text-on-surface-variant leading-relaxed">
-              Roteiros personalizados e inteligentes criados em segundos para o seu próximo destino.
+              Roteiros personalizados para o seu próximo destino, montados em poucos segundos.
             </p>
           </section>
 
@@ -366,7 +366,7 @@ export default function HomePage() {
               style={{ background: '#ffd167', color: '#765900' }}
             >
               <span className="material-symbols-rounded filled text-[20px]">auto_awesome</span>
-              Gerar Meu Roteiro
+              Montar Meu Roteiro
             </button>
           </section>
         </div>

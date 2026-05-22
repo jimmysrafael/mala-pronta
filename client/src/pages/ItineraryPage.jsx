@@ -79,7 +79,7 @@ export default function ItineraryPage() {
 
   return (
     <>
-      <Header title="MalaPronta IA" showBack onBack={() => navigate(-1)} />
+      <Header title="MalaPronta" showBack onBack={() => navigate(-1)} />
 
       <main className="pb-28">
         {/* Banner */}

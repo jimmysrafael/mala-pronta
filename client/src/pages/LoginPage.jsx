@@ -62,7 +62,7 @@ export default function LoginPage() {
               flight_takeoff
             </span>
           </div>
-          <h1 className="font-display font-extrabold text-2xl text-on-surface">MalaPronta IA</h1>
+          <h1 className="font-display font-extrabold text-2xl text-on-surface">MalaPronta</h1>
           <p className="font-body text-sm text-on-surface-variant mt-1">
             Sua viagem perfeita começa aqui
           </p>

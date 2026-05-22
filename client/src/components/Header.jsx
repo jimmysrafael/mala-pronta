@@ -56,7 +56,7 @@ export default function Header({ title, showBack, onBack }) {
             flight_takeoff
           </span>
           <span className="truncate font-display font-bold text-lg text-on-surface tracking-tight">
-            {title || 'MalaPronta IA'}
+            {title || 'MalaPronta'}
           </span>
         </div>
       </div>
