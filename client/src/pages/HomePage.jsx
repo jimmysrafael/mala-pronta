@@ -404,7 +404,7 @@ export default function HomePage() {
                     Processando sua escolha
                   </p>
                   <p className="font-body text-xs text-on-surface-variant">
-                    Estamos montando a viagem com a opcao selecionada. Isso pode levar alguns segundos.
+                    Estamos montando a viagem com a opção selecionada. Isso pode levar alguns segundos.
                   </p>
                 </div>
               </div>
@@ -476,7 +476,7 @@ export default function HomePage() {
                 <p className="font-body text-xs leading-relaxed text-white/85">
                   {budgetDecisionLoading
                     ? 'Aguarde a montagem do roteiro.'
-                    : 'Reaproveita os valores reais ja encontrados e ajusta o roteiro com base neles.'}
+                    : 'Reaproveita os valores reais já encontrados e ajusta o roteiro com base neles.'}
                 </p>
               </button>
             </div>

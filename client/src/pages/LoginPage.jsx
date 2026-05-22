@@ -54,7 +54,7 @@ export default function LoginPage() {
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.error || 'Erro ao processar sua solicitaÃ§Ã£o');
+        throw new Error(data.error || 'Erro ao processar sua solicitação');
       }
 
       login(data.token, data.user);
@@ -110,7 +110,7 @@ export default function LoginPage() {
             </div>
             <h1 className="font-display font-extrabold text-2xl text-on-surface">MalaPronta</h1>
             <p className="font-body text-sm text-on-surface-variant mt-1">
-              Sua viagem perfeita comeÃ§a aqui
+              Sua viagem perfeita começa aqui
             </p>
           </div>
 
@@ -186,7 +186,7 @@ export default function LoginPage() {
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
+                  placeholder="••••••••••"
                   required
                   minLength={6}
                   className="w-full py-3.5 px-4 rounded-2xl bg-surface-container-high text-on-surface font-body text-sm placeholder:text-on-surface-variant/50 outline-none focus:ring-2 focus:ring-primary/20 transition-all border-none"
@@ -227,7 +227,7 @@ export default function LoginPage() {
             </form>
 
             <p className="text-center mt-5 font-body text-sm text-on-surface-variant">
-              {isLogin ? 'NÃ£o tem uma conta?' : 'JÃ¡ tem uma conta?'}{' '}
+              {isLogin ? 'Não tem uma conta?' : 'Já tem uma conta?'}{' '}
               <button
                 onClick={() => {
                   setIsLogin(!isLogin);
