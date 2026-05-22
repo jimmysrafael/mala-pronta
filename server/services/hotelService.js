@@ -100,7 +100,7 @@ function getHotelApiErrorReason(err) {
     return 'Sistema de hoteis indisponivel por tempo indeterminado. Usaremos estimativas sem consulta em tempo real.';
   }
 
-  return 'Nao foi possivel consultar hoteis em tempo real. Usamos uma estimativa com base no orcamento.';
+  return 'Não foi possível consultar hotéis em tempo real. Usamos uma estimativa com base no orçamento.';
 }
 
 function mapHotelResult(hotel, index, days, arrivalDate, departureDate) {

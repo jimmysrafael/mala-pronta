@@ -157,7 +157,7 @@ function validateGeneratePayload(body = {}) {
     return { error: 'Dias deve ser um numero entre 1 e 30' };
   }
   if (!Number.isFinite(budget) || budget < 100 || budget > 100000) {
-    return { error: 'Orcamento deve ser um valor entre 100 e 100000' };
+    return { error: 'Orçamento deve ser um valor entre 100 e 100000' };
   }
   if (!Number.isInteger(travelers) || travelers < 1 || travelers > 9) {
     return { error: 'Viajantes deve ser um numero entre 1 e 9' };
@@ -208,7 +208,7 @@ router.post('/generate', optionalAuth, generateLimiter, async (req, res) => {
     const previewToken = String(req.body.previewToken || '').trim();
 
     if (!destination || !days || !budget) {
-      return res.status(400).json({ error: 'Destino, dias e orcamento sao obrigatorios' });
+      return res.status(400).json({ error: 'Destino, dias e orçamento são obrigatórios' });
     }
 
     const originName = typeof origin === 'object' ? (origin.cityName || origin.airportName || '') : origin;
@@ -275,7 +275,7 @@ router.post('/generate', optionalAuth, generateLimiter, async (req, res) => {
 
           const preview = readBudgetPreview(previewToken);
           if (!preview) {
-            return { error: 'Avaliacao de orcamento expirada. Gere o roteiro novamente.' };
+            return { error: 'Avaliação de orçamento expirada. Gere o roteiro novamente.' };
           }
 
           tripPlan = buildFeasiblePlan({
@@ -407,7 +407,7 @@ router.post('/generate', optionalAuth, generateLimiter, async (req, res) => {
             chosenHotel: tripPlan.chosenHotel,
             warnings: tripPlan.warnings,
           },
-          message: 'Passagem e hospedagem ultrapassaram o limite de seguranca do orcamento. Escolha como deseja continuar.',
+          message: 'Passagem e hospedagem ultrapassaram o limite de segurança do orçamento. Escolha como deseja continuar.',
         };
       }
 

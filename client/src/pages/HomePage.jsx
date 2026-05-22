@@ -460,7 +460,7 @@ export default function HomePage() {
                 <p className="font-body text-xs leading-relaxed text-on-surface-variant">
                   {budgetDecisionLoading
                     ? 'Aguarde a montagem do roteiro.'
-                    : 'Mantem a experiencia rapida e monta o roteiro usando estimativas para caber no orcamento.'}
+                    : 'Mantém a experiência rápida e monta o roteiro usando estimativas para caber no orçamento.'}
                 </p>
               </button>
 

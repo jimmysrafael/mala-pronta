@@ -117,7 +117,7 @@ function buildBudgetWarnings({ budget, flightCost, hotelCost, days, budgetMode }
   }
 
   if (totalRealCost > budget * 0.6) {
-    warnings.push('Voo e hospedagem ja comprometem mais de 60% do orcamento.');
+    warnings.push('Voo e hospedagem já comprometem mais de 60% do orçamento.');
   }
 
   if (days >= 7 && hotelCost < days * 150) {
@@ -154,7 +154,7 @@ function buildFeasiblePlan({
   });
 
   if (!chosenFlight) {
-    warnings.push(flights.reason || 'Voos nao encontrados para estas datas. A estimativa de custo de passagem foi calculada com base no orcamento.');
+    warnings.push(flights.reason || 'Voos não encontrados para estas datas. A estimativa de custo de passagem foi calculada com base no orçamento.');
   }
   if (!chosenHotel) {
     warnings.push(hotels.reason || 'Nenhum hotel encontrado para as datas selecionadas. As sugestoes de hospedagem foram baseadas no destino e na duracao da viagem.');
