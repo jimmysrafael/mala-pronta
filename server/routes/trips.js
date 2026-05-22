@@ -140,7 +140,7 @@ router.post('/generate', optionalAuth, generateLimiter, async (req, res) => {
 
     const departureDate = date || startDate || '';
     const tripReturnDate = returnDate || '';
-    const cacheKey = `trip-${originCity}-${destinationCity}-${days}-${budget}-${travelers}-${departureDate}-${tripReturnDate}-${interests}`
+    const cacheKey = `trip-live-v2-${originCity}-${destinationCity}-${days}-${budget}-${travelers}-${departureDate}-${tripReturnDate}-${interests}`
       .toLowerCase().replace(/\s+/g, '_');
 
     if (inFlightRequests.has(cacheKey)) {
@@ -171,9 +171,6 @@ router.post('/generate', optionalAuth, generateLimiter, async (req, res) => {
       let flightResults = await searchFlights({ origin, destination, days, travelers, startDate, date, returnDate });
 
       if (flightResults.needsRefresh) {
-        const oldOriginId = origin.entityId;
-        const oldDestId = destination.entityId;
-
         logger.info('[AUTO-REPAIR] Detectada falha de IDs. Atualizando aeroportos.');
 
         await Promise.all([

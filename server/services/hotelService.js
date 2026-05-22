@@ -28,13 +28,11 @@ async function searchDestination(city) {
     const maskedKey = RAPIDAPI_KEY ? `****${RAPIDAPI_KEY.slice(-4)}` : 'MISSING';
     logger.debug(`[HOTEL DESTINATION] query=${city} | key=${maskedKey}`);
 
-    const { data } = await axios.get(
-      'https://booking-com15.p.rapidapi.com/api/v1/hotels/searchDestination',
-      {
-        headers,
-        params: { query: city },
-      }
-    );
+    const { data } = await axios.get(`https://${HOTEL_HOST}/api/v1/hotels/searchDestination`, {
+      headers,
+      params: { query: city },
+      timeout: 15000,
+    });
 
     const result = data?.data?.[0];
     if (!result) {
@@ -66,7 +64,16 @@ async function searchDestination(city) {
 
     return destData;
   } catch (err) {
-    logger.error(`[HOTEL DESTINATION ERROR] ${city}:`, err);
+    logger.error(`[HOTEL DESTINATION ERROR] ${city}`, err);
+    logApiUsage({
+      service_name: 'hotel_destination',
+      provider: 'Booking.com',
+      endpoint: '/searchDestination',
+      success: 0,
+      status_code: err.response?.status || null,
+      error_message: err.response?.data?.message || err.message,
+      request_key: city,
+    });
     return null;
   }
 }
@@ -81,8 +88,38 @@ function normalizeCityLabel(value) {
   return String(value || '')
     .split(',')[0]
     .replace(/\s*\([^)]+\)\s*$/g, '')
-    .replace(/\s*-\s*[A-Za-zÀ-ÿ'’\. ]+$/g, '')
+    .replace(/\s*-\s*[A-Za-zÀ-ÿ'’. ]+$/g, '')
     .trim();
+}
+
+function getHotelApiErrorReason(err) {
+  const status = err.response?.status || null;
+  const message = err.response?.data?.message || err.message;
+
+  if (status === 429 && /quota|limit|too many/i.test(message)) {
+    return 'Cota da API Booking.com/RapidAPI excedida. Não foi possível consultar hotéis reais com a chave atual.';
+  }
+
+  return 'Não foi possível consultar hotéis em tempo real. Usamos uma estimativa com base no orçamento.';
+}
+
+function mapHotelResult(hotel, index, days, arrivalDate, departureDate) {
+  const totalPrice = Math.round(hotel.property?.priceBreakdown?.grossPrice?.value || 0);
+  const hotelItem = {
+    provider: 'booking',
+    name: hotel.property?.name || 'Hotel',
+    totalPrice,
+    nightlyRate: Math.round(totalPrice / days),
+    currency: 'BRL',
+    rating: hotel.property?.reviewScore || null,
+    reviewWord: hotel.property?.reviewScoreWord || null,
+    neighborhood: hotel.property?.wishlistName || null,
+    checkIn: arrivalDate,
+    checkOut: departureDate,
+  };
+
+  logger.debug(`[HOTEL ${index + 1}] name=${hotelItem.name} | price=BRL ${hotelItem.totalPrice} | rating=${hotelItem.rating}`);
+  return hotelItem;
 }
 
 async function searchHotels({ destination, days, budget, startDate }) {
@@ -126,51 +163,38 @@ async function searchHotels({ destination, days, budget, startDate }) {
 
     const budgetPerNight = (budget * 0.35) / days;
 
-    logger.debug(`[HOTEL SEARCH] checkin=${arrivalDate} | checkout=${departureDate} | dest_id=${dest.dest_id}`);
+    logger.debug(`[HOTEL SEARCH] checkin=${arrivalDate} | checkout=${departureDate} | dest_id=${dest.dest_id} | search_type=${dest.search_type}`);
 
-    const { data } = await axios.get(
-      'https://booking-com15.p.rapidapi.com/api/v1/hotels/searchHotels',
-      {
-        headers,
-        params: {
-          dest_id: dest.dest_id,
-          search_type: dest.search_type,
-          arrival_date: arrivalDate,
-          departure_date: departureDate,
-          adults: 1,
-          room_qty: 1,
-          currency_code: 'BRL',
-          languagecode: 'pt-br',
-          sort_by: 'popularity',
-        },
-      }
-    );
+    const { data } = await axios.get(`https://${HOTEL_HOST}/api/v1/hotels/searchHotels`, {
+      headers,
+      params: {
+        dest_id: dest.dest_id,
+        search_type: dest.search_type,
+        arrival_date: arrivalDate,
+        departure_date: departureDate,
+        adults: 1,
+        room_qty: 1,
+        currency_code: 'BRL',
+        languagecode: 'pt-br',
+        sort_by: 'popularity',
+      },
+      timeout: 15000,
+    });
 
     const rawHotels = data?.data?.hotels || [];
     logger.debug(`[HOTEL SEARCH RESPONSE] total_results=${rawHotels.length}`);
 
-    const hotels = rawHotels
-      .filter((h) => {
-        const price = h.property?.priceBreakdown?.grossPrice?.value;
-        return price && price <= (budgetPerNight * days);
-      })
-      .slice(0, 3)
-      .map((h, i) => {
-        const hotelItem = {
-          provider: 'booking',
-          name: h.property?.name || 'Hotel',
-          totalPrice: Math.round(h.property?.priceBreakdown?.grossPrice?.value || 0),
-          nightlyRate: Math.round((h.property?.priceBreakdown?.grossPrice?.value || 0) / days),
-          currency: 'BRL',
-          rating: h.property?.reviewScore || null,
-          reviewWord: h.property?.reviewScoreWord || null,
-          neighborhood: h.property?.wishlistName || null,
-          checkIn: arrivalDate,
-          checkOut: departureDate,
-        };
-        logger.debug(`[HOTEL ${i + 1}] name=${hotelItem.name} | price=BRL ${hotelItem.totalPrice} | rating=${hotelItem.rating}`);
-        return hotelItem;
-      });
+    const hotelsWithPrice = rawHotels
+      .map((hotel, index) => mapHotelResult(hotel, index, days, arrivalDate, departureDate))
+      .filter((hotel) => hotel.totalPrice > 0)
+      .sort((a, b) => a.totalPrice - b.totalPrice);
+
+    const hotelsWithinBudget = hotelsWithPrice.filter((hotel) => hotel.totalPrice <= (budgetPerNight * days));
+    const hotels = (hotelsWithinBudget.length > 0 ? hotelsWithinBudget : hotelsWithPrice).slice(0, 3);
+
+    if (hotels.length > 0 && hotelsWithinBudget.length === 0) {
+      logger.warn('[HOTEL SEARCH] Hotéis reais encontrados, mas acima da fatia de orçamento. Usando os mais baratos retornados pela API.');
+    }
 
     if (hotels.length > 0) {
       await db.run(
@@ -190,8 +214,18 @@ async function searchHotels({ destination, days, budget, startDate }) {
 
     return { available: hotels.length > 0, data: hotels };
   } catch (err) {
-    logger.error(`[HOTEL SEARCH ERROR] ${city}:`, err);
-    return { available: false, reason: 'Não foi possível consultar hotéis em tempo real. Usamos uma estimativa com base no orçamento.', data: [] };
+    const reason = getHotelApiErrorReason(err);
+    logger.error(`[HOTEL SEARCH ERROR] ${city}: ${reason}`, err);
+    logApiUsage({
+      service_name: 'hotel_search',
+      provider: 'Booking.com',
+      endpoint: '/searchHotels',
+      success: 0,
+      status_code: err.response?.status || null,
+      error_message: err.response?.data?.message || err.message,
+      request_key: cacheKey,
+    });
+    return { available: false, reason, data: [] };
   }
 }
 

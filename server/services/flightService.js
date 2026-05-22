@@ -6,6 +6,14 @@ const logger = require('../utils/logger');
 
 const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY;
 const FLIGHT_HOST = 'sky-scrapper.p.rapidapi.com';
+const FLIGHT_CURRENCY = process.env.FLIGHT_CURRENCY || 'BRL';
+const FLIGHT_MARKET = process.env.FLIGHT_MARKET || 'pt-BR';
+const FLIGHT_COUNTRY_CODE = process.env.FLIGHT_COUNTRY_CODE || 'BR';
+
+const FLIGHT_ENDPOINTS = [
+  { label: 'v2', path: '/api/v2/flights/searchFlights' },
+  { label: 'v1', path: '/api/v1/flights/searchFlights' },
+];
 
 const headers = {
   'Content-Type': 'application/json',
@@ -19,6 +27,78 @@ function getRelativeDate(baseDate, days) {
   return d.toISOString().split('T')[0];
 }
 
+function buildFlightParams({ originAirport, destAirport, departureDate, returnDate, travelers }) {
+  return {
+    originSkyId: originAirport.skyId,
+    destinationSkyId: destAirport.skyId,
+    originEntityId: originAirport.entityId,
+    destinationEntityId: destAirport.entityId,
+    date: departureDate,
+    returnDate,
+    cabinClass: 'economy',
+    adults: travelers,
+    sortBy: 'best',
+    currency: FLIGHT_CURRENCY,
+    market: FLIGHT_MARKET,
+    countryCode: FLIGHT_COUNTRY_CODE,
+  };
+}
+
+function getItineraries(apiResponse) {
+  return apiResponse?.data?.itineraries || [];
+}
+
+function isStaleIdResponse(apiResponse) {
+  const message = String(apiResponse?.message || '');
+  return (
+    apiResponse?.status === false ||
+    message === 'Something went wrong.' ||
+    message.includes('object Object')
+  );
+}
+
+function formatBRL(value) {
+  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
+}
+
+function formatUSD(value) {
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value);
+}
+
+function mapFlightOffers({ itineraries, rate, isExchangeFallback, originAirport, destAirport, departureDate, returnDate }) {
+  return itineraries.slice(0, 3).map((item, index) => {
+    const rawPrice = Number(item.price?.raw || 0);
+    const priceBRL = FLIGHT_CURRENCY === 'BRL' ? rawPrice : rawPrice * rate;
+    const priceUSD = FLIGHT_CURRENCY === 'USD' ? rawPrice : priceBRL / rate;
+    const legs = item.legs || [];
+    const outboundLeg = legs[0];
+    const duration = outboundLeg?.durationInMinutes || 0;
+    const stops = outboundLeg?.stopCount ?? 0;
+    const airline = outboundLeg?.carriers?.marketing?.[0]?.name || 'N/A';
+
+    logger.debug(`[FLIGHT ${index + 1}] price=${FLIGHT_CURRENCY} ${rawPrice} | duration=${duration} min | stops=${stops} | airline=${airline}`);
+
+    return {
+      provider: 'sky_scrapper',
+      priceUSD,
+      formattedUSD: FLIGHT_CURRENCY === 'USD' && item.price?.formatted ? item.price.formatted : formatUSD(priceUSD),
+      priceBRL,
+      formattedBRL: FLIGHT_CURRENCY === 'BRL' && item.price?.formatted ? item.price.formatted : formatBRL(priceBRL),
+      exchangeRate: rate,
+      isExchangeFallback,
+      currencyOriginal: FLIGHT_CURRENCY,
+      currencyDefault: 'BRL',
+      stops,
+      duration: duration ? `${Math.floor(duration / 60)}h${duration % 60}min` : null,
+      airline,
+      originAirport: originAirport.airportName || originAirport.cityName,
+      destAirport: destAirport.airportName || destAirport.cityName,
+      departureDate,
+      returnDate,
+    };
+  });
+}
+
 async function searchFlights({ origin, destination, days, travelers = 1, startDate, date, returnDate: explicitReturnDate }, isRetry = false) {
   const originAirport = typeof origin === 'object' && origin.skyId ? origin : null;
   const destAirport = typeof destination === 'object' && destination.skyId ? destination : null;
@@ -30,13 +110,14 @@ async function searchFlights({ origin, destination, days, travelers = 1, startDa
 
   const departureDate = date || startDate || getRelativeDate(null, 30);
   const returnDate = explicitReturnDate || getRelativeDate(departureDate, parseInt(days));
-  const cacheKey = `flights-v1-${originAirport.skyId}-${destAirport.skyId}-${departureDate}-${returnDate}-${travelers}`;
-
+  const cacheKey = `flights-live-v2-${originAirport.skyId}-${destAirport.skyId}-${departureDate}-${returnDate}-${travelers}-${FLIGHT_CURRENCY}-${FLIGHT_MARKET}-${FLIGHT_COUNTRY_CODE}`;
   const tryLabel = isRetry ? 'TENTATIVA 2' : 'TENTATIVA 1';
+
   logger.debug(`[FLIGHTS REQUEST] (${tryLabel})`);
   logger.debug(`originSkyId=${originAirport.skyId} | originEntityId=${originAirport.entityId}`);
   logger.debug(`destinationSkyId=${destAirport.skyId} | destinationEntityId=${destAirport.entityId}`);
   logger.debug(`date=${departureDate} | returnDate=${returnDate} | travelers=${travelers}`);
+  logger.debug(`currency=${FLIGHT_CURRENCY} | market=${FLIGHT_MARKET} | countryCode=${FLIGHT_COUNTRY_CODE}`);
   logger.debug(`key=${maskedKey} | cacheKey=${cacheKey}`);
 
   try {
@@ -48,7 +129,7 @@ async function searchFlights({ origin, destination, days, travelers = 1, startDa
         logApiUsage({
           service_name: 'flights',
           provider: 'Sky Scrapper',
-          endpoint: '/api/v1/flights/searchFlights',
+          endpoint: FLIGHT_ENDPOINTS[0].path,
           cache_hit: 1,
           request_key: cacheKey,
         });
@@ -61,129 +142,115 @@ async function searchFlights({ origin, destination, days, travelers = 1, startDa
 
   logger.debug(`[CACHE MISS] tipo=flight_cache | key=${cacheKey}`);
 
-  try {
-    const response = await axios.get(
-      'https://sky-scrapper.p.rapidapi.com/api/v1/flights/searchFlights',
-      {
+  const params = buildFlightParams({ originAirport, destAirport, departureDate, returnDate, travelers });
+  const endpointAttempts = [];
+  let staleIdsDetected = false;
+
+  for (const endpoint of FLIGHT_ENDPOINTS) {
+    try {
+      logger.debug(`[FLIGHTS API] Tentando ${endpoint.path}`);
+      const response = await axios.get(`https://${FLIGHT_HOST}${endpoint.path}`, {
         headers,
-        params: {
-          originSkyId: originAirport.skyId,
-          destinationSkyId: destAirport.skyId,
-          originEntityId: originAirport.entityId,
-          destinationEntityId: destAirport.entityId,
-          date: departureDate,
-          returnDate,
-          cabinClass: 'economy',
-          adults: travelers,
-          sortBy: 'best',
-          currency: 'USD',
-          market: 'en-US',
-          countryCode: 'US',
-        },
-      }
-    );
+        params,
+        timeout: 15000,
+      });
 
-    const apiResponse = response.data;
-    const itineraries = apiResponse?.data?.itineraries || [];
+      const apiResponse = response.data;
+      const itineraries = getItineraries(apiResponse);
+      const attemptSummary = {
+        endpoint: endpoint.path,
+        status: apiResponse?.status,
+        totalResults: apiResponse?.data?.context?.totalResults || 'N/A',
+        itinerariesLength: itineraries.length,
+        dataKeys: Object.keys(apiResponse?.data || {}),
+      };
+      endpointAttempts.push(attemptSummary);
 
-    logger.debug('[FLIGHTS RESPONSE]');
-    logger.debug(`status=${apiResponse?.status !== undefined ? apiResponse.status : 'N/A'}`);
-    logger.debug(`totalResults=${apiResponse?.data?.context?.totalResults || 'N/A'}`);
-    logger.debug(`itinerariesLength=${itineraries.length}`);
-    logger.debug(`Object.keys(response.data)=${Object.keys(apiResponse).join(', ')}`);
-    logger.debug(`Object.keys(response.data.data || {})=${Object.keys(apiResponse?.data || {}).join(', ')}`);
-    logger.debug(`Array.isArray(itineraries)=${Array.isArray(itineraries)}`);
+      logger.debug('[FLIGHTS RESPONSE]', attemptSummary);
 
-    if (apiResponse?.status === false || apiResponse?.message === 'Something went wrong.' || apiResponse?.message?.includes('object Object')) {
-      logger.debug('[FLIGHTS ERROR RAW]');
-      logger.debug(JSON.stringify(apiResponse, null, 2));
-
-      if (!isRetry) {
-        logger.warn('[FLIGHTS] API v1 retornou erro na Tentativa 1.');
-        await db.run('DELETE FROM airports WHERE "skyId" IN (?, ?)', [originAirport.skyId, destAirport.skyId]);
-
-        return {
-          available: false,
-          needsRefresh: true,
-          staleIds: [originAirport.skyId, destAirport.skyId],
-          reason: 'Entity IDs obsoletos detectados.',
-        };
+      if (isStaleIdResponse(apiResponse)) {
+        staleIdsDetected = true;
+        logger.warn(`[FLIGHTS] ${endpoint.path} retornou resposta de erro da API.`);
+        logger.debug('[FLIGHTS ERROR RAW]', apiResponse);
+        continue;
       }
 
-      logger.error('[FLIGHTS] API v1 falhou novamente na Tentativa 2. Usando fallback.');
-      return { available: false, reason: 'Não foi possível consultar voos em tempo real. Usamos uma estimativa com base no orçamento.', data: [] };
-    }
+      if (itineraries.length === 0) {
+        logger.warn(`[FLIGHTS] ${endpoint.path} não retornou itinerários.`);
+        continue;
+      }
 
-    if (itineraries.length === 0) {
-      return { available: false, reason: 'Nenhum voo encontrado para essa rota.', data: [] };
-    }
+      logger.debug(`Primeiro preço raw: ${itineraries[0].price?.raw}`);
+      logger.debug(`Primeiro preço formatted: ${itineraries[0].price?.formatted}`);
+      logger.debug(`Primeira companhia: ${itineraries[0].legs?.[0]?.carriers?.marketing?.[0]?.name}`);
 
-    logger.debug(`Primeiro preço raw: ${itineraries[0].price?.raw}`);
-    logger.debug(`Primeiro preço formatted: ${itineraries[0].price?.formatted}`);
-    logger.debug(`Primeira companhia: ${itineraries[0].legs?.[0]?.carriers?.marketing?.[0]?.name}`);
-
-    const { rate, isFallback } = await getUSDBRLRate();
-
-    const offers = itineraries.slice(0, 3).map((item, index) => {
-      const priceUSD = item.price?.raw || 0;
-      const priceBRL = priceUSD * rate;
-      const legs = item.legs || [];
-      const outboundLeg = legs[0];
-      const duration = outboundLeg?.durationInMinutes || 0;
-      const stops = outboundLeg?.stopCount ?? 0;
-      const airline = outboundLeg?.carriers?.marketing?.[0]?.name || 'N/A';
-
-      logger.debug(`[FLIGHT ${index + 1}] price=USD ${priceUSD} | duration=${duration} min | stops=${stops} | airline=${airline}`);
-
-      return {
-        provider: 'air_scraper',
-        priceUSD,
-        formattedUSD: item.price?.formatted || `$ ${priceUSD.toFixed(0)}`,
-        priceBRL,
-        formattedBRL: new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(priceBRL),
-        exchangeRate: rate,
+      const { rate, isFallback } = await getUSDBRLRate();
+      const offers = mapFlightOffers({
+        itineraries,
+        rate,
         isExchangeFallback: isFallback,
-        currencyOriginal: 'USD',
-        currencyDefault: 'BRL',
-        stops,
-        duration: duration ? `${Math.floor(duration / 60)}h${duration % 60}min` : null,
-        airline,
-        originAirport: originAirport.airportName || originAirport.cityName,
-        destAirport: destAirport.airportName || destAirport.cityName,
+        originAirport,
+        destAirport,
         departureDate,
         returnDate,
-      };
-    });
+      });
 
-    await db.run(
-      'INSERT INTO flight_cache (cache_key, resultado_json, created_at) VALUES (?, ?, NOW()) ON CONFLICT (cache_key) DO UPDATE SET resultado_json = EXCLUDED.resultado_json, created_at = NOW()',
-      [cacheKey, JSON.stringify(offers)]
-    );
+      await db.run(
+        'INSERT INTO flight_cache (cache_key, resultado_json, created_at) VALUES (?, ?, NOW()) ON CONFLICT (cache_key) DO UPDATE SET resultado_json = EXCLUDED.resultado_json, created_at = NOW()',
+        [cacheKey, JSON.stringify(offers)]
+      );
 
-    logApiUsage({
-      service_name: 'flights',
-      provider: 'Sky Scrapper',
-      endpoint: '/api/v1/flights/searchFlights',
-      cache_hit: 0,
-      success: 1,
-      request_key: cacheKey,
-    });
+      logApiUsage({
+        service_name: 'flights',
+        provider: 'Sky Scrapper',
+        endpoint: endpoint.path,
+        cache_hit: 0,
+        success: 1,
+        status_code: response.status,
+        request_key: cacheKey,
+      });
 
-    return { available: true, data: offers };
-  } catch (err) {
-    logger.error('[FLIGHTS ERROR]', err);
-    if (err.response?.data) logger.debug(JSON.stringify(err.response.data, null, 2));
+      return { available: true, data: offers };
+    } catch (err) {
+      endpointAttempts.push({
+        endpoint: endpoint.path,
+        status: err.response?.status || null,
+        message: err.response?.data?.message || err.message,
+      });
 
-    logApiUsage({
-      service_name: 'flights',
-      provider: 'Sky Scrapper',
-      endpoint: '/api/v1/flights/searchFlights',
-      success: 0,
-      error_message: err.message,
-      request_key: cacheKey,
-    });
-    return { available: false, reason: 'Não foi possível consultar voos em tempo real. Usamos uma estimativa com base no orçamento.', data: [] };
+      logger.error(`[FLIGHTS API ERROR] ${endpoint.path}`, err);
+      logApiUsage({
+        service_name: 'flights',
+        provider: 'Sky Scrapper',
+        endpoint: endpoint.path,
+        success: 0,
+        status_code: err.response?.status || null,
+        error_message: err.response?.data?.message || err.message,
+        request_key: cacheKey,
+      });
+    }
   }
+
+  logger.warn('[FLIGHTS] Nenhum endpoint retornou voos reais.');
+  logger.debug('[FLIGHTS ATTEMPTS]', endpointAttempts);
+
+  if (staleIdsDetected && !isRetry) {
+    logger.warn('[FLIGHTS] Possíveis Entity IDs obsoletos. Solicitando auto-repair.');
+    await db.run('DELETE FROM airports WHERE "skyId" IN (?, ?)', [originAirport.skyId, destAirport.skyId]);
+
+    return {
+      available: false,
+      needsRefresh: true,
+      staleIds: [originAirport.skyId, destAirport.skyId],
+      reason: 'Entity IDs obsoletos detectados.',
+    };
+  }
+
+  return {
+    available: false,
+    reason: 'Nenhum voo real foi retornado pela Sky Scrapper para essa rota/data.',
+    data: [],
+  };
 }
 
 module.exports = { searchFlights };
