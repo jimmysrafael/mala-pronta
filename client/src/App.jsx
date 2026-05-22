@@ -6,6 +6,10 @@ import HomePage from './pages/HomePage';
 import ItineraryPage from './pages/ItineraryPage';
 import MyTripsPage from './pages/MyTripsPage';
 import ProfilePage from './pages/ProfilePage';
+import AboutPage from './pages/AboutPage';
+import ContactPage from './pages/ContactPage';
+import TermsPage from './pages/TermsPage';
+import PrivacyPage from './pages/PrivacyPage';
 
 function ProtectedRoute({ children }) {
   const { token, loading } = useAuth();
@@ -54,6 +58,10 @@ function AppRoutes() {
         path="/"
         element={<HomePage />}
       />
+      <Route path="/sobre" element={<AboutPage />} />
+      <Route path="/contato" element={<ContactPage />} />
+      <Route path="/termos" element={<TermsPage />} />
+      <Route path="/privacidade" element={<PrivacyPage />} />
       <Route
         path="/itinerary"
         element={<ItineraryPage />}

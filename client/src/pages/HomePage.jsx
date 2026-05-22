@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import Header from '../components/Header';
 import BottomNav from '../components/BottomNav';
@@ -370,6 +370,50 @@ export default function HomePage() {
             <p className="font-body text-sm text-on-surface-variant leading-relaxed">
               Roteiros personalizados para o seu próximo destino, montados em poucos segundos.
             </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {[
+                { to: '/sobre', label: 'Sobre' },
+                { to: '/contato', label: 'Contato' },
+                { to: '/termos', label: 'Termos' },
+                { to: '/privacidade', label: 'Privacidade' },
+              ].map((item) => (
+                <Link
+                  key={item.to}
+                  to={item.to}
+                  className="rounded-full bg-white/80 px-3 py-1.5 text-[11px] font-semibold text-on-surface-variant shadow-sm backdrop-blur-md transition-colors hover:bg-white hover:text-primary"
+                >
+                  {item.label}
+                </Link>
+              ))}
+            </div>
+          </section>
+
+          <section
+            className="mb-8 grid gap-3 rounded-3xl bg-surface-container-lowest/88 p-5 shadow-[0_8px_32px_rgba(0,0,0,0.04)] backdrop-blur-[10px] animate-fade-in-up"
+            style={{ animationDelay: '0.05s' }}
+          >
+            <div>
+              <p className="mb-2 inline-flex rounded-full bg-primary/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-primary">
+                Como funciona
+              </p>
+              <h2 className="font-display text-lg font-bold text-on-surface">
+                Um jeito mais simples de planejar sua viagem.
+              </h2>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-3">
+              {[
+                '1 consulta gratuita para cada visitante',
+                'Recompensa por anúncio para liberar mais consultas',
+                'Planos e pacotes opcionais por checkout Pix',
+              ].map((item) => (
+                <div key={item} className="rounded-2xl bg-surface-container-low p-4">
+                  <p className="font-body text-sm leading-relaxed text-on-surface-variant">{item}</p>
+                </div>
+              ))}
+            </div>
+            <p className="rounded-2xl bg-[#f3f6f5] px-4 py-3 font-body text-xs leading-relaxed text-on-surface-variant">
+              As estimativas podem variar conforme disponibilidade real de voos, hotéis e atrações. O serviço é informativo e depende de integrações de terceiros para montar o roteiro final.
+            </p>
           </section>
 
           <section
@@ -655,7 +699,7 @@ export default function HomePage() {
             </div>
           </div>
         </div>
-      )}
+      )} 
 
       <MonetizationGate
         open={Boolean(monetizationPrompt)}
