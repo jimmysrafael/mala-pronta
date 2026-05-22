@@ -142,6 +142,8 @@ export default function HomePage() {
           destination: destAirport.cityName,
           days: generateData.finalDays,
           budget: data.totalBudget || data.budgetBreakdown?.total || budget,
+          startDate: generateData.payload.startDate || '',
+          returnDate: generateData.payload.returnDate || '',
           isNew: true,
         },
       });
@@ -172,6 +174,8 @@ export default function HomePage() {
           destination: destAirport.cityName,
           days: budgetDecisionPrompt.finalDays,
           budget: data.totalBudget || data.budgetBreakdown?.total || budget,
+          startDate: budgetDecisionPrompt.requestBody.startDate || '',
+          returnDate: budgetDecisionPrompt.requestBody.returnDate || '',
           isNew: true,
         },
       });

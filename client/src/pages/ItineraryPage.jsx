@@ -4,7 +4,7 @@ import { useToast } from '../components/Toast';
 import Header from '../components/Header';
 import BottomNav from '../components/BottomNav';
 import { useState } from 'react';
-import { hashStr, formatCurrency } from '../utils/helpers';
+import { hashStr, formatCurrency, formatDate } from '../utils/helpers';
 import { apiFetch } from '../lib/api';
 
 const BANNER_GRADIENTS = [
@@ -27,12 +27,14 @@ export default function ItineraryPage() {
   const [saved, setSaved] = useState(false);
   const [showBRL, setShowBRL] = useState(true);
 
-  const { itinerary, destination, days, budget, isNew } = location.state || {};
+  const { itinerary, destination, days, budget, startDate, returnDate, isNew } = location.state || {};
   const itineraryBudget = Number(
     itinerary?.budgetBreakdown?.total ?? itinerary?.totalBudget ?? budget ?? 0
   );
   const originalBudget = Number(budget ?? 0);
   const isBudgetAdjusted = itineraryBudget > 0 && originalBudget > 0 && itineraryBudget !== originalBudget;
+  const tripStartDate = itinerary?.startDate || startDate || '';
+  const tripReturnDate = itinerary?.returnDate || returnDate || '';
 
   if (!itinerary) {
     return (
@@ -49,6 +51,12 @@ export default function ItineraryPage() {
     if (saved || saving) return;
     setSaving(true);
     try {
+      const itineraryToSave = {
+        ...itinerary,
+        startDate: tripStartDate,
+        returnDate: tripReturnDate,
+      };
+
       const res = await apiFetch('/api/trips/save', {
         method: 'POST',
         headers: {
@@ -59,7 +67,7 @@ export default function ItineraryPage() {
           destination: itinerary.destination || destination,
           days: itinerary.totalDays || days,
           budget: itineraryBudget || itinerary.totalBudget || budget,
-          itinerary,
+          itinerary: itineraryToSave,
         }),
       });
 
@@ -126,6 +134,32 @@ export default function ItineraryPage() {
                 {itinerary.country || ''}
               </span>
             </div>
+            {(tripStartDate || tripReturnDate) && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                <div className="inline-flex items-center gap-2 rounded-2xl bg-white/15 px-3 py-2 backdrop-blur-md">
+                  <span className="material-symbols-rounded text-[18px] text-white/90">flight_takeoff</span>
+                  <div className="leading-tight">
+                    <p className="font-body text-[10px] font-semibold uppercase tracking-wider text-white/70">
+                      Ida
+                    </p>
+                    <p className="font-display text-sm font-bold text-white">
+                      {tripStartDate ? formatDate(tripStartDate) : 'Não informada'}
+                    </p>
+                  </div>
+                </div>
+                <div className="inline-flex items-center gap-2 rounded-2xl bg-white/15 px-3 py-2 backdrop-blur-md">
+                  <span className="material-symbols-rounded text-[18px] text-white/90">flight_land</span>
+                  <div className="leading-tight">
+                    <p className="font-body text-[10px] font-semibold uppercase tracking-wider text-white/70">
+                      Volta
+                    </p>
+                    <p className="font-display text-sm font-bold text-white">
+                      {tripReturnDate ? formatDate(tripReturnDate) : 'Não informada'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
